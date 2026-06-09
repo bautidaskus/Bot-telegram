@@ -9,7 +9,7 @@ from openai import OpenAI
 
 from src.config import Settings
 
-MAX_AUDIO_BYTES = 20 * 1024 * 1024
+MAX_AUDIO_BYTES = 25 * 1024 * 1024
 
 
 class TranscriptionsProtocol(Protocol):
@@ -50,7 +50,7 @@ class WhisperClient:
         """Transcribe un archivo local y devuelve texto no vacío."""
 
         if audio_path.stat().st_size > MAX_AUDIO_BYTES:
-            raise AudioTooLargeError("El audio supera el límite de 20 MB")
+            raise AudioTooLargeError("El audio supera el límite de 25 MB")
         with audio_path.open("rb") as audio_file:
             response = self.client.audio.transcriptions.create(
                 model=self.model,

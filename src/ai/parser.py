@@ -3,14 +3,24 @@
 from __future__ import annotations
 
 import json
+import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol
 
-from openai import OpenAI
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    InternalServerError,
+    OpenAI,
+    RateLimitError,
+)
 from pydantic import ValidationError
 
 from src.config import Settings
 from src.domain.schemas import ParserResponse
+
+TRANSIENT_ERRORS = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
 
 
 class CompletionsProtocol(Protocol):
@@ -36,13 +46,29 @@ class ParserError(RuntimeError):
     """Indica que el LLM no produjo una respuesta válida."""
 
 
+class ParserUnavailableError(ParserError):
+    """Indica que el servicio LLM no respondió tras varios reintentos."""
+
+
 class LLMParser:
     """Convierte lenguaje natural en operaciones tipadas."""
 
-    def __init__(self, *, client: ClientProtocol, model: str, prompt_path: Path) -> None:
+    def __init__(
+        self,
+        *,
+        client: ClientProtocol,
+        model: str,
+        prompt_path: Path,
+        sleep: Callable[[float], None] = time.sleep,
+        backoff_base: float = 2.0,
+        api_attempts: int = 3,
+    ) -> None:
         self.client = client
         self.model = model
         self.prompt_template = prompt_path.read_text(encoding="utf-8")
+        self.sleep = sleep
+        self.backoff_base = backoff_base
+        self.api_attempts = api_attempts
 
     def parse(self, text: str, exercise_catalog: list[str]) -> ParserResponse:
         """Interpreta un mensaje y reintenta dos veces si la salida no valida."""
@@ -56,13 +82,7 @@ class LLMParser:
         ]
         last_error = "respuesta desconocida"
         for _ in range(3):
-            completion = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                response_format={"type": "json_object"},
-                temperature=0,
-            )
-            content = completion.choices[0].message.content or ""
+            content = self._complete(messages)
             try:
                 return ParserResponse.model_validate(json.loads(content))
             except (json.JSONDecodeError, ValidationError) as error:
@@ -82,6 +102,29 @@ class LLMParser:
         raise ParserError(
             f"El parser no produjo una respuesta válida tras 3 intentos: {last_error}"
         )
+
+    def _complete(self, messages: list[dict[str, str]]) -> str:
+        """Llama a Groq reintentando con backoff exponencial ante fallos transitorios."""
+
+        delay = self.backoff_base
+        last_error: Exception | None = None
+        for attempt in range(self.api_attempts):
+            try:
+                completion = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    response_format={"type": "json_object"},
+                    temperature=0,
+                )
+                return completion.choices[0].message.content or ""
+            except TRANSIENT_ERRORS as error:
+                last_error = error
+                if attempt < self.api_attempts - 1:
+                    self.sleep(delay)
+                    delay *= 2
+        raise ParserUnavailableError(
+            f"Groq no respondió tras {self.api_attempts} intentos"
+        ) from last_error
 
 
 def create_groq_parser(

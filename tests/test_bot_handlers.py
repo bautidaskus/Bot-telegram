@@ -8,8 +8,9 @@ from typing import Any
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
+from src.ai.parser import ParserUnavailableError
 from src.bot.handlers import BotHandlers
-from src.db.models import Base, Preview, Transaccion
+from src.db.models import Base, Pendiente, Preview, Transaccion
 from src.db.session import create_sqlite_engine
 from src.domain.schemas import ParserResponse
 
@@ -22,6 +23,15 @@ class FakeParser:
     def parse(self, text: str, exercise_catalog: list[str]) -> ParserResponse:
         self.calls.append((text, exercise_catalog))
         return self.response
+
+
+class UnavailableParser:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, list[str]]] = []
+
+    def parse(self, text: str, exercise_catalog: list[str]) -> ParserResponse:
+        self.calls.append((text, exercise_catalog))
+        raise ParserUnavailableError("Groq no respondió tras 3 intentos")
 
 
 class FakeMessage:
@@ -156,6 +166,172 @@ async def test_authorized_text_creates_preview_with_buttons(
     with session_factory() as session:
         preview = session.query(Preview).one()
         assert preview.message_id == 789
+
+
+@pytest.mark.asyncio
+async def test_preview_warns_about_future_date(
+    session_factory: sessionmaker[Session],
+) -> None:
+    parser = FakeParser(
+        ParserResponse.model_validate(
+            {
+                "operaciones": [
+                    {
+                        "tipo": "gasto",
+                        "confianza": 0.95,
+                        "fecha": "2026-12-25",
+                        "datos": {"monto": 1500, "categoria": "alimentos"},
+                    }
+                ]
+            }
+        )
+    )
+    handlers = BotHandlers(
+        allowed_chat_id=123,
+        parser=parser,
+        session_factory=session_factory,
+        now=lambda: datetime(2026, 6, 9, 10, 0),
+    )
+    update = text_update("Gasté 1500 el 25/12")
+
+    await handlers.handle_text(update, SimpleNamespace())
+
+    reply_text = update.message.replies[0][0]
+    assert "fecha futura: 2026-12-25" in reply_text
+    assert "Revisá antes de guardar" in reply_text
+
+
+@pytest.mark.asyncio
+async def test_preview_warns_about_weight_and_sleep_out_of_range(
+    session_factory: sessionmaker[Session],
+) -> None:
+    parser = FakeParser(
+        ParserResponse.model_validate(
+            {
+                "operaciones": [
+                    {
+                        "tipo": "peso",
+                        "confianza": 0.95,
+                        "fecha": "hoy",
+                        "datos": {"kg": 12},
+                    },
+                    {
+                        "tipo": "salud",
+                        "confianza": 0.95,
+                        "fecha": "hoy",
+                        "datos": {"sueno_horas": 20},
+                    },
+                ]
+            }
+        )
+    )
+    handlers = BotHandlers(
+        allowed_chat_id=123,
+        parser=parser,
+        session_factory=session_factory,
+        now=lambda: datetime(2026, 6, 9, 10, 0),
+    )
+    update = text_update("Pesé 12 y dormí 20 horas")
+
+    await handlers.handle_text(update, SimpleNamespace())
+
+    reply_text = update.message.replies[0][0]
+    assert "peso fuera de rango habitual: 12 kg" in reply_text
+    assert "sueño fuera de rango habitual: 20 h" in reply_text
+
+
+@pytest.mark.asyncio
+async def test_in_range_preview_has_no_warnings(
+    session_factory: sessionmaker[Session],
+) -> None:
+    handlers = BotHandlers(
+        allowed_chat_id=123,
+        parser=FakeParser(expense_response()),
+        session_factory=session_factory,
+        now=lambda: datetime(2026, 6, 9, 10, 0),
+    )
+    update = text_update("Gasté 1500")
+
+    await handlers.handle_text(update, SimpleNamespace())
+
+    assert "Revisá antes de guardar" not in update.message.replies[0][0]
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.value = 1000.0
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.value
+
+    async def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.value += seconds
+
+
+@pytest.mark.asyncio
+async def test_accumulated_messages_are_throttled_to_one_per_second(
+    session_factory: sessionmaker[Session],
+) -> None:
+    clock = FakeClock()
+    handlers = BotHandlers(
+        allowed_chat_id=123,
+        parser=FakeParser(expense_response()),
+        session_factory=session_factory,
+        now=lambda: datetime(2026, 6, 9, 10, 0),
+        throttle_interval=1.0,
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+    )
+
+    for _ in range(3):
+        await handlers.handle_text(text_update("Gasté 1500"), SimpleNamespace())
+
+    assert clock.sleeps == [1.0, 1.0]
+
+
+@pytest.mark.asyncio
+async def test_unauthorized_message_is_not_throttled(
+    session_factory: sessionmaker[Session],
+) -> None:
+    clock = FakeClock()
+    handlers = BotHandlers(
+        allowed_chat_id=123,
+        parser=FakeParser(expense_response()),
+        session_factory=session_factory,
+        now=lambda: datetime(2026, 6, 9, 10, 0),
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+    )
+
+    await handlers.handle_text(text_update("Gasté 1500", chat_id=999), SimpleNamespace())
+
+    assert clock.sleeps == []
+
+
+@pytest.mark.asyncio
+async def test_groq_unavailable_stores_pending_and_notifies(
+    session_factory: sessionmaker[Session],
+) -> None:
+    handlers = BotHandlers(
+        allowed_chat_id=123,
+        parser=UnavailableParser(),
+        session_factory=session_factory,
+        now=lambda: datetime(2026, 6, 9, 10, 0),
+    )
+    update = text_update("Gasté 1500")
+
+    await handlers.handle_text(update, SimpleNamespace())
+
+    reply_text = update.message.replies[0][0]
+    assert "no está disponible" in reply_text
+    assert "pendiente" in reply_text
+    with session_factory() as session:
+        pending = session.query(Pendiente).one()
+        assert pending.mensaje_original == "Gasté 1500"
+        assert pending.chat_id == 123
+        assert session.query(Preview).count() == 0
 
 
 @pytest.mark.asyncio

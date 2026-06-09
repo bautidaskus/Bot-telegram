@@ -163,6 +163,25 @@ class PreviewService:
         self.session.flush()
         return pending
 
+    def store_failure(
+        self,
+        *,
+        chat_id: int,
+        original_text: str,
+        transcription: str | None = None,
+    ) -> Pendiente:
+        """Guarda un mensaje que no se pudo procesar por indisponibilidad del LLM."""
+
+        pending = Pendiente(
+            chat_id=chat_id,
+            mensaje_original=original_text,
+            transcripcion=transcription,
+            sugerencias_json=None,
+        )
+        self.session.add(pending)
+        self.session.flush()
+        return pending
+
     def resolve_ambiguity(self, pending_id: int, *, hint: str) -> ClarificationContext:
         """Cierra un pendiente y devuelve el contexto para reprocesarlo."""
 

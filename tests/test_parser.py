@@ -6,10 +6,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
 import pytest
-from openai import OpenAI
+from openai import APIConnectionError, OpenAI
 
-from src.ai.parser import LLMParser, ParserError
+from src.ai.parser import LLMParser, ParserError, ParserUnavailableError
 
 
 class FakeCompletions:
@@ -95,7 +96,7 @@ def test_parser_retries_with_validation_error_context(tmp_path: Path) -> None:
                     "tipo": "peso",
                     "confianza": 0.9,
                     "fecha": "hoy",
-                    "datos": {"kg": 500},
+                    "datos": {"kg": 0},
                 }
             ]
         }
@@ -120,6 +121,60 @@ def test_parser_raises_after_three_invalid_responses(tmp_path: Path) -> None:
         parser.parse("Anoté algo", [])
 
     assert len(completions.calls) == 3
+
+
+class FlakyCompletions:
+    def __init__(self, failures: int, response: str | None) -> None:
+        self.failures = failures
+        self.response = response
+        self.attempts = 0
+
+    def create(self, **_: Any) -> SimpleNamespace:
+        self.attempts += 1
+        if self.attempts <= self.failures:
+            raise APIConnectionError(request=httpx.Request("POST", "https://api.groq.com"))
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=self.response))]
+        )
+
+
+def build_flaky_parser(
+    tmp_path: Path, failures: int, response: str | None
+) -> tuple[LLMParser, list[float], FlakyCompletions]:
+    prompt_path = tmp_path / "parser.txt"
+    prompt_path.write_text("Catálogo: {exercise_catalog}", encoding="utf-8")
+    completions = FlakyCompletions(failures, response)
+    client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
+    sleeps: list[float] = []
+    parser = LLMParser(
+        client=client,
+        model="test-model",
+        prompt_path=prompt_path,
+        sleep=sleeps.append,
+        backoff_base=2.0,
+        api_attempts=3,
+    )
+    return parser, sleeps, completions
+
+
+def test_parser_recovers_from_transient_errors_with_exponential_backoff(tmp_path: Path) -> None:
+    parser, sleeps, completions = build_flaky_parser(tmp_path, 2, valid_expense_response())
+
+    response = parser.parse("Gasté 1500", [])
+
+    assert response.operaciones[0].tipo == "gasto"
+    assert completions.attempts == 3
+    assert sleeps == [2.0, 4.0]
+
+
+def test_parser_raises_unavailable_when_groq_stays_down(tmp_path: Path) -> None:
+    parser, sleeps, completions = build_flaky_parser(tmp_path, 5, None)
+
+    with pytest.raises(ParserUnavailableError, match="3 intentos"):
+        parser.parse("Gasté 1500", [])
+
+    assert completions.attempts == 3
+    assert sleeps == [2.0, 4.0]
 
 
 def test_fixture_contains_at_least_twenty_real_messages() -> None:

@@ -110,7 +110,7 @@ def test_parser_response_accepts_each_remaining_operation_type(
                 "tipo": "peso",
                 "confianza": 0.9,
                 "fecha": "hoy",
-                "datos": {"kg": 301},
+                "datos": {"kg": 0},
             },
             "kg",
         ),

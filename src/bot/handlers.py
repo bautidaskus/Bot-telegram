@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
-from datetime import datetime
+import time
+from collections.abc import Awaitable, Callable
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -13,6 +14,7 @@ from typing import Any, Protocol
 from sqlalchemy.orm import Session, sessionmaker
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
+from src.ai.parser import ParserUnavailableError
 from src.ai.whisper_client import MAX_AUDIO_BYTES, EmptyTranscriptionError
 from src.bot.auth import is_authorized
 from src.bot.callbacks import (
@@ -25,6 +27,10 @@ from src.bot.callbacks import (
 from src.bot.preview_service import PreviewService
 from src.db.repositories import GymRepository
 from src.domain.schemas import ParserResponse
+from src.utils.dates import DateParseError, parse_spanish_date
+
+PESO_MIN, PESO_MAX = Decimal(30), Decimal(300)
+SUENO_MIN, SUENO_MAX = Decimal(1), Decimal(16)
 
 
 class ParserProtocol(Protocol):
@@ -61,6 +67,9 @@ class BotHandlers:
         session_factory: sessionmaker[Session],
         temp_dir: Path | None = None,
         now: Callable[[], datetime] = datetime.now,
+        throttle_interval: float = 1.0,
+        monotonic: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self.allowed_chat_id = allowed_chat_id
         self.parser = parser
@@ -69,6 +78,22 @@ class BotHandlers:
         self.session_factory = session_factory
         self.temp_dir = temp_dir
         self.now = now
+        self.throttle_interval = throttle_interval
+        self.monotonic = monotonic
+        self.sleep = sleep
+        self._next_allowed = 0.0
+        self._throttle_lock = asyncio.Lock()
+
+    async def _throttle(self) -> None:
+        """Espacia el procesamiento a 1 msg/seg para no saturar Groq al arrancar."""
+
+        async with self._throttle_lock:
+            now = self.monotonic()
+            if now < self._next_allowed:
+                await self.sleep(self._next_allowed - now)
+                self._next_allowed += self.throttle_interval
+            else:
+                self._next_allowed = now + self.throttle_interval
 
     async def handle_text(self, update: Any, _: Any) -> None:
         """Convierte un mensaje autorizado en preview o aclaración."""
@@ -78,6 +103,7 @@ class BotHandlers:
         message = update.effective_message
         if message is None or not message.text:
             return
+        await self._throttle()
         await self._create_preview_from_text(
             update,
             message.text,
@@ -96,7 +122,22 @@ class BotHandlers:
         message = update.effective_message
         with self.session_factory() as session:
             catalog = [item.nombre_canonico for item in GymRepository(session).list_exercises()]
-        parsed = await asyncio.to_thread(self.parser.parse, parse_text, catalog)
+        try:
+            parsed = await asyncio.to_thread(self.parser.parse, parse_text, catalog)
+        except ParserUnavailableError:
+            with self.session_factory() as session:
+                pending = PreviewService(session).store_failure(
+                    chat_id=update.effective_chat.id,
+                    original_text=original_text,
+                    transcription=transcription,
+                )
+                session.commit()
+                pending_id = pending.id
+            await message.reply_text(
+                f"Groq no está disponible ahora. Guardé tu mensaje como pendiente "
+                f"(#{pending_id}); reenvialo más tarde para registrarlo."
+            )
+            return
         requires_clarification = any(
             operation.tipo == "ambiguo" or operation.confianza < 0.7
             for operation in parsed.operaciones
@@ -137,8 +178,10 @@ class BotHandlers:
             )
             keyboard = _preview_keyboard(preview.id)
             session.commit()
+        warnings = _collect_warnings(parsed, today=self.now().date(), now=self.now())
         sent_message = await message.reply_text(
-            heading + _render_preview(parsed), reply_markup=keyboard
+            heading + _render_warnings(warnings) + _render_preview(parsed),
+            reply_markup=keyboard,
         )
         with self.session_factory() as session:
             PreviewService(session).attach_message(preview.id, sent_message.message_id)
@@ -169,8 +212,9 @@ class BotHandlers:
         if media is None or self.whisper is None or self.audio_converter is None:
             return
         if media.file_size and media.file_size > MAX_AUDIO_BYTES:
-            await message.reply_text("El audio supera el límite de 20 MB.")
+            await message.reply_text("El audio supera el límite de 25 MB.")
             return
+        await self._throttle()
         suffix = ".ogg" if message.voice else Path(media.file_name or "audio.bin").suffix
         with TemporaryDirectory(dir=self.temp_dir) as directory:
             source = Path(directory) / f"source{suffix}"
@@ -280,6 +324,37 @@ def _format_decimal(value: Decimal) -> str:
         .rstrip("0")
         .rstrip(",")
     )
+
+
+def _collect_warnings(parsed: ParserResponse, *, today: date, now: datetime) -> list[str]:
+    """Detecta valores que el spec (§12) pide confirmar antes de guardar."""
+
+    warnings: list[str] = []
+    for index, operation in enumerate(parsed.operaciones, start=1):
+        try:
+            resolved = parse_spanish_date(operation.fecha, now=now)
+        except DateParseError:
+            resolved = None
+        if resolved is not None and resolved > today:
+            warnings.append(f"{index}. fecha futura: {resolved.isoformat()}")
+        data = operation.datos.model_dump(exclude_none=True)
+        if operation.tipo == "peso" and not PESO_MIN <= data["kg"] <= PESO_MAX:
+            peso = _format_decimal(data["kg"])
+            warnings.append(f"{index}. peso fuera de rango habitual: {peso} kg")
+        if (
+            operation.tipo == "salud"
+            and data.get("sueno_horas") is not None
+            and not SUENO_MIN <= data["sueno_horas"] <= SUENO_MAX
+        ):
+            sueno = _format_decimal(data["sueno_horas"])
+            warnings.append(f"{index}. sueño fuera de rango habitual: {sueno} h")
+    return warnings
+
+
+def _render_warnings(warnings: list[str]) -> str:
+    if not warnings:
+        return ""
+    return "⚠️ Revisá antes de guardar:\n" + "\n".join(warnings) + "\n\n"
 
 
 def _collect_suggestions(parsed: ParserResponse) -> list[Any]:

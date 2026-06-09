@@ -45,10 +45,10 @@ def test_transcribe_sends_audio_to_groq_in_spanish(tmp_path: Path) -> None:
 def test_transcribe_rejects_file_over_telegram_download_limit(tmp_path: Path) -> None:
     audio_path = tmp_path / "large.ogg"
     with audio_path.open("wb") as audio:
-        audio.truncate(20 * 1024 * 1024 + 1)
+        audio.truncate(25 * 1024 * 1024 + 1)
     client, transcriptions = build_client("unused")
 
-    with pytest.raises(AudioTooLargeError, match="20 MB"):
+    with pytest.raises(AudioTooLargeError, match="25 MB"):
         WhisperClient(client=client, model="test-whisper").transcribe(audio_path)
 
     assert transcriptions.calls == []

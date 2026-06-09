@@ -166,12 +166,12 @@ async def test_audio_file_uses_converter_before_transcription(
 
 
 @pytest.mark.asyncio
-async def test_audio_over_twenty_mb_is_rejected_before_download(
+async def test_audio_over_twenty_five_mb_is_rejected_before_download(
     session_factory: sessionmaker[Session], tmp_path: Path
 ) -> None:
     telegram_file = FakeTelegramFile()
     voice = FakeVoice(telegram_file)
-    voice.file_size = 20 * 1024 * 1024 + 1
+    voice.file_size = 25 * 1024 * 1024 + 1
     message = FakeMessage(voice=voice)
     handlers = BotHandlers(
         allowed_chat_id=123,
@@ -186,7 +186,7 @@ async def test_audio_over_twenty_mb_is_rejected_before_download(
     await handlers.handle_audio(audio_update(message), SimpleNamespace())
 
     assert telegram_file.downloads == []
-    assert "20 MB" in message.replies[0][0]
+    assert "25 MB" in message.replies[0][0]
 
 
 @pytest.mark.asyncio

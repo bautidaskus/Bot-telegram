@@ -89,16 +89,20 @@ class GymData(Schema):
 
 
 class PesoData(Schema):
-    """Datos de peso corporal."""
+    """Datos de peso corporal.
 
-    kg: Decimal = Field(ge=30, le=300)
+    El rango plausible (30-300 kg) no se rechaza acá: los valores fuera de
+    rango se confirman en el preview (ver §12 del spec).
+    """
+
+    kg: Decimal = Field(gt=0)
     nota: str | None = None
 
 
 class SaludData(Schema):
     """Datos diarios de salud."""
 
-    sueno_horas: Decimal | None = Field(default=None, ge=1, le=16)
+    sueno_horas: Decimal | None = Field(default=None, gt=0)
     sueno_calidad: int | None = Field(default=None, ge=1, le=10)
     animo: int | None = Field(default=None, ge=1, le=10)
     energia: int | None = Field(default=None, ge=1, le=10)
