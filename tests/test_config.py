@@ -7,8 +7,25 @@ from pydantic import ValidationError
 
 from src.config import Settings
 
+CONFIG_ENV_VARS = (
+    "TELEGRAM_BOT_TOKEN",
+    "ALLOWED_CHAT_ID",
+    "GROQ_API_KEY",
+    "TIMEZONE",
+    "DEFAULT_CURRENCY",
+    "DB_PATH",
+)
 
-def test_settings_load_required_values_and_defaults(tmp_path: Path) -> None:
+
+def clear_config_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    for variable in CONFIG_ENV_VARS:
+        monkeypatch.delenv(variable, raising=False)
+
+
+def test_settings_load_required_values_and_defaults(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clear_config_environment(monkeypatch)
     env_file = tmp_path / ".env"
     env_file.write_text(
         "TELEGRAM_BOT_TOKEN=test-token\nALLOWED_CHAT_ID=123456\nGROQ_API_KEY=test-key\n",
@@ -25,7 +42,10 @@ def test_settings_load_required_values_and_defaults(tmp_path: Path) -> None:
     assert settings.db_path == Path("data/tracker.db")
 
 
-def test_settings_reject_missing_required_values(tmp_path: Path) -> None:
+def test_settings_reject_missing_required_values(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clear_config_environment(monkeypatch)
     env_file = tmp_path / ".env"
     env_file.write_text("", encoding="utf-8")
 
