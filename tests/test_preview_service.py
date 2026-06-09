@@ -233,6 +233,10 @@ def test_resolve_ambiguity_returns_reprocessing_context(
         )
         session.commit()
 
+        loaded = service.get_ambiguity_context(pending.id, hint="gasto")
+        assert loaded.original_text == "Anoté 20"
+        assert pending.estado == "pendiente"
+
         context = service.resolve_ambiguity(pending.id, hint="gasto")
         session.commit()
 
@@ -240,6 +244,25 @@ def test_resolve_ambiguity_returns_reprocessing_context(
         assert context.transcription == "Anoté veinte"
         assert context.hint == "gasto"
         assert pending.estado == "resuelto"
+
+
+def test_attach_message_stores_bot_preview_message_id(
+    session_factory: sessionmaker[Session],
+) -> None:
+    now = datetime(2026, 6, 9, 10, 0)
+    with session_factory() as session:
+        service = PreviewService(session)
+        preview = service.create(
+            chat_id=123,
+            message_id=None,
+            original_text="Gasté 1500 y ánimo 8",
+            parsed=parsed_batch(),
+            now=now,
+        )
+        service.attach_message(preview.id, 789)
+        session.commit()
+
+        assert preview.message_id == 789
 
 
 def test_confirm_rolls_back_whole_batch_when_operation_fails(

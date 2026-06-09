@@ -180,6 +180,29 @@ class PreviewService:
             hint=hint,
         )
 
+    def get_ambiguity_context(self, pending_id: int, *, hint: str) -> ClarificationContext:
+        """Lee una aclaración válida sin cambiar su estado."""
+
+        pending = self.session.get_one(Pendiente, pending_id)
+        if pending.estado != "pendiente":
+            raise PreviewStateError(f"La aclaración está {pending.estado}")
+        suggestions = json.loads(pending.sugerencias_json or "[]")
+        if hint not in suggestions:
+            raise PreviewStateError("El hint no pertenece a las sugerencias")
+        return ClarificationContext(
+            original_text=pending.mensaje_original,
+            transcription=pending.transcripcion,
+            hint=hint,
+        )
+
+    def attach_message(self, preview_id: str, message_id: int) -> Preview:
+        """Asocia el mensaje de Telegram que contiene el preview."""
+
+        preview = self.session.get_one(Preview, preview_id)
+        preview.message_id = message_id
+        self.session.flush()
+        return preview
+
     def _require_pending(self, preview: Preview, now: datetime) -> None:
         if preview.estado == "expirado" or preview.expira_en <= now:
             if preview.estado == "pendiente":
