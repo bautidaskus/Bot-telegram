@@ -6,6 +6,7 @@ from pathlib import Path
 from sqlalchemy.orm import Session, sessionmaker
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler
 
+from src.bot.backup_commands import BotBackup
 from src.bot.commands import BotCommands
 from src.bot.handlers import BotHandlers
 from src.bot.maintenance import BotMaintenance
@@ -39,12 +40,17 @@ def test_register_handlers_adds_text_and_callback_routes(tmp_path: Path) -> None
         allowed_chat_id=123,
         session_factory=sessions,
     )
+    backup = BotBackup(
+        allowed_chat_id=123,
+        db_path=tmp_path / "main.db",
+        backup_dir=tmp_path / "backups",
+    )
     application = Application.builder().token("123456:TEST_TOKEN").build()
 
-    register_handlers(application, handlers, commands, maintenance)
+    register_handlers(application, handlers, commands, maintenance, backup)
 
     registered = application.handlers[0]
-    assert sum(isinstance(handler, CommandHandler) for handler in registered) == 13
+    assert sum(isinstance(handler, CommandHandler) for handler in registered) == 15
     assert sum(isinstance(handler, CallbackQueryHandler) for handler in registered) == 2
     assert sum(isinstance(handler, MessageHandler) for handler in registered) == 2
     assert isinstance(application.handlers[-1][0], MessageHandler)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, time
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -19,11 +19,13 @@ from telegram.ext import (
 from src.ai.audio_converter import AudioConverter
 from src.ai.parser import create_groq_parser
 from src.ai.whisper_client import create_groq_whisper
+from src.bot.backup_commands import BotBackup
 from src.bot.commands import BotCommands
 from src.bot.handlers import BotHandlers
 from src.bot.maintenance import BotMaintenance
 from src.config import Settings, get_settings
 from src.db.session import create_sqlite_engine
+from src.logging_setup import configure_logging
 
 
 def register_handlers(
@@ -31,6 +33,7 @@ def register_handlers(
     handlers: BotHandlers,
     commands: BotCommands,
     maintenance: BotMaintenance,
+    backup: BotBackup,
 ) -> None:
     """Registra los flujos interactivos implementados."""
 
@@ -55,6 +58,8 @@ def register_handlers(
         ("salud", commands.health),
         ("editar", maintenance.edit),
         ("borrar", maintenance.delete),
+        ("backup", backup.backup),
+        ("export", backup.export),
     ):
         application.add_handler(CommandHandler(name, callback))
     application.add_handler(CallbackQueryHandler(maintenance.handle_callback, pattern=r"^m:"))
@@ -86,17 +91,30 @@ def build_application(settings: Settings) -> Application[Any, Any, Any, Any, Any
         allowed_chat_id=settings.allowed_chat_id,
         session_factory=sessions,
     )
+    backup = BotBackup(
+        allowed_chat_id=settings.allowed_chat_id,
+        db_path=settings.db_path,
+        backup_dir=settings.backup_dir,
+        retention_days=settings.backup_retention_days,
+        now=lambda: datetime.now(timezone).replace(tzinfo=None),
+    )
     application = (
         Application.builder().token(settings.telegram_bot_token.get_secret_value()).build()
     )
-    register_handlers(application, handlers, commands, maintenance)
+    register_handlers(application, handlers, commands, maintenance, backup)
+    application.job_queue.run_daily(
+        backup.scheduled_backup,
+        time=time(hour=settings.backup_daily_hour, tzinfo=timezone),
+    )
     return application
 
 
 def main() -> None:
     """Inicia long polling sin descartar mensajes acumulados."""
 
-    build_application(get_settings()).run_polling(drop_pending_updates=False)
+    settings = get_settings()
+    configure_logging(settings)
+    build_application(settings).run_polling(drop_pending_updates=False)
 
 
 if __name__ == "__main__":

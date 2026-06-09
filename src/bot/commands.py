@@ -45,7 +45,8 @@ class BotCommands:
             update,
             "/balance [mes] [año]\n/gastos [categoria]\n/ingresos [mes] [año]\n"
             "/ultimos [n]\n/gym [ejercicio]\n/sesiones [n]\n/peso [historial]\n"
-            "/salud\n/hoy\n/editar <tipo> <id>\n/borrar <tipo> <id>",
+            "/salud\n/hoy\n/editar <tipo> <id>\n/borrar <tipo> <id>\n"
+            "/export\n/backup",
         )
 
     async def balance(self, update: Any, context: Any) -> None:
