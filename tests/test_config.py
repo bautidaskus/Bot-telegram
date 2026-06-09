@@ -51,3 +51,20 @@ def test_settings_reject_missing_required_values(
 
     with pytest.raises(ValidationError):
         Settings(_env_file=env_file)
+
+
+def test_env_example_contains_valid_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    clear_config_environment(monkeypatch)
+
+    settings = Settings(
+        _env_file=Path(".env.example"),
+        telegram_bot_token="test-token",
+        allowed_chat_id=123456,
+        groq_api_key="test-key",
+    )
+
+    assert settings.groq_llm_model == "llama-3.3-70b-versatile"
+    assert settings.groq_whisper_model == "whisper-large-v3"
+    assert settings.db_path == Path("data/tracker.db")
+    assert settings.backup_retention_days == 30
+    assert settings.backup_daily_hour == 3
