@@ -147,6 +147,7 @@ class Preview(Base):
     mensaje_original: Mapped[str] = mapped_column(Text)
     transcripcion: Mapped[str | None] = mapped_column(Text)
     operaciones_json: Mapped[str] = mapped_column(Text)
+    resultados_json: Mapped[str | None] = mapped_column(Text)
     estado: Mapped[str] = mapped_column(String(20), default="pendiente")
     creado_en: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp())
     expira_en: Mapped[datetime] = mapped_column(DateTime)

@@ -100,6 +100,7 @@ def upgrade() -> None:
         sa.Column("mensaje_original", sa.Text(), nullable=False),
         sa.Column("transcripcion", sa.Text(), nullable=True),
         sa.Column("operaciones_json", sa.Text(), nullable=False),
+        sa.Column("resultados_json", sa.Text(), nullable=True),
         sa.Column("estado", sa.String(length=20), nullable=False),
         sa.Column(
             "creado_en",
