@@ -16,7 +16,9 @@ from telegram.ext import (
     filters,
 )
 
+from src.ai.audio_converter import AudioConverter
 from src.ai.parser import create_groq_parser
+from src.ai.whisper_client import create_groq_whisper
 from src.bot.commands import BotCommands
 from src.bot.handlers import BotHandlers
 from src.bot.maintenance import BotMaintenance
@@ -56,6 +58,7 @@ def register_handlers(
     ):
         application.add_handler(CommandHandler(name, callback))
     application.add_handler(CallbackQueryHandler(maintenance.handle_callback, pattern=r"^m:"))
+    application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handlers.handle_audio))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.handle_text))
     application.add_handler(CallbackQueryHandler(handlers.handle_callback))
 
@@ -69,6 +72,8 @@ def build_application(settings: Settings) -> Application[Any, Any, Any, Any, Any
     handlers = BotHandlers(
         allowed_chat_id=settings.allowed_chat_id,
         parser=create_groq_parser(settings),
+        whisper=create_groq_whisper(settings),
+        audio_converter=AudioConverter(),
         session_factory=sessions,
         now=lambda: datetime.now(timezone).replace(tzinfo=None),
     )

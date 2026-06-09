@@ -6,11 +6,14 @@ import asyncio
 from collections.abc import Callable
 from datetime import datetime
 from decimal import Decimal
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, Protocol
 
 from sqlalchemy.orm import Session, sessionmaker
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
+from src.ai.whisper_client import MAX_AUDIO_BYTES, EmptyTranscriptionError
 from src.bot.auth import is_authorized
 from src.bot.callbacks import (
     ClarificationCallback,
@@ -31,6 +34,20 @@ class ParserProtocol(Protocol):
         """Interpreta texto en operaciones."""
 
 
+class WhisperProtocol(Protocol):
+    """Transcriptor requerido por audio."""
+
+    def transcribe(self, audio_path: Path) -> str:
+        """Transcribe un archivo local."""
+
+
+class AudioConverterProtocol(Protocol):
+    """Conversor requerido para formatos no OGG."""
+
+    def convert_to_ogg(self, source: Path, target: Path) -> Path:
+        """Convierte un archivo a OGG."""
+
+
 class BotHandlers:
     """Orquesta Telegram, parser y persistencia."""
 
@@ -39,12 +56,18 @@ class BotHandlers:
         *,
         allowed_chat_id: int,
         parser: ParserProtocol,
+        whisper: WhisperProtocol | None = None,
+        audio_converter: AudioConverterProtocol | None = None,
         session_factory: sessionmaker[Session],
+        temp_dir: Path | None = None,
         now: Callable[[], datetime] = datetime.now,
     ) -> None:
         self.allowed_chat_id = allowed_chat_id
         self.parser = parser
+        self.whisper = whisper
+        self.audio_converter = audio_converter
         self.session_factory = session_factory
+        self.temp_dir = temp_dir
         self.now = now
 
     async def handle_text(self, update: Any, _: Any) -> None:
@@ -55,9 +78,25 @@ class BotHandlers:
         message = update.effective_message
         if message is None or not message.text:
             return
+        await self._create_preview_from_text(
+            update,
+            message.text,
+            original_text=message.text,
+        )
+
+    async def _create_preview_from_text(
+        self,
+        update: Any,
+        parse_text: str,
+        *,
+        original_text: str,
+        transcription: str | None = None,
+        heading: str = "",
+    ) -> None:
+        message = update.effective_message
         with self.session_factory() as session:
             catalog = [item.nombre_canonico for item in GymRepository(session).list_exercises()]
-        parsed = await asyncio.to_thread(self.parser.parse, message.text, catalog)
+        parsed = await asyncio.to_thread(self.parser.parse, parse_text, catalog)
         requires_clarification = any(
             operation.tipo == "ambiguo" or operation.confianza < 0.7
             for operation in parsed.operaciones
@@ -67,7 +106,8 @@ class BotHandlers:
                 service = PreviewService(session)
                 pending = service.store_ambiguity(
                     chat_id=update.effective_chat.id,
-                    original_text=message.text,
+                    original_text=original_text,
+                    transcription=transcription,
                     parsed=parsed,
                 )
                 suggestions = _collect_suggestions(parsed)
@@ -90,13 +130,16 @@ class BotHandlers:
             preview = service.create(
                 chat_id=update.effective_chat.id,
                 message_id=None,
-                original_text=message.text,
+                original_text=original_text,
+                transcription=transcription,
                 parsed=parsed,
                 now=self.now(),
             )
             keyboard = _preview_keyboard(preview.id)
             session.commit()
-        sent_message = await message.reply_text(_render_preview(parsed), reply_markup=keyboard)
+        sent_message = await message.reply_text(
+            heading + _render_preview(parsed), reply_markup=keyboard
+        )
         with self.session_factory() as session:
             PreviewService(session).attach_message(preview.id, sent_message.message_id)
             session.commit()
@@ -115,6 +158,41 @@ class BotHandlers:
             await self._handle_clarification(query, callback)
             return
         await self._handle_preview_action(query, callback)
+
+    async def handle_audio(self, update: Any, _: Any) -> None:
+        """Transcribe voice/audio y crea un preview verificable."""
+
+        if not is_authorized(update, self.allowed_chat_id):
+            return
+        message = update.effective_message
+        media = message.voice or message.audio
+        if media is None or self.whisper is None or self.audio_converter is None:
+            return
+        if media.file_size and media.file_size > MAX_AUDIO_BYTES:
+            await message.reply_text("El audio supera el límite de 20 MB.")
+            return
+        suffix = ".ogg" if message.voice else Path(media.file_name or "audio.bin").suffix
+        with TemporaryDirectory(dir=self.temp_dir) as directory:
+            source = Path(directory) / f"source{suffix}"
+            telegram_file = await media.get_file()
+            await telegram_file.download_to_drive(custom_path=source)
+            transcription_path = source
+            if message.audio:
+                transcription_path = await asyncio.to_thread(
+                    self.audio_converter.convert_to_ogg, source, Path(directory) / "converted.ogg"
+                )
+            try:
+                transcription = await asyncio.to_thread(self.whisper.transcribe, transcription_path)
+            except EmptyTranscriptionError:
+                await message.reply_text("No entendí el audio, ¿podés reescribirlo?")
+                return
+            await self._create_preview_from_text(
+                update,
+                transcription,
+                original_text=transcription,
+                transcription=transcription,
+                heading=f"Transcripción: {transcription}\n\n",
+            )
 
     async def _handle_preview_action(self, query: Any, callback: PreviewCallback) -> None:
         if callback.action == "corregir":

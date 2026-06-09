@@ -46,4 +46,5 @@ def test_register_handlers_adds_text_and_callback_routes(tmp_path: Path) -> None
     registered = application.handlers[0]
     assert sum(isinstance(handler, CommandHandler) for handler in registered) == 13
     assert sum(isinstance(handler, CallbackQueryHandler) for handler in registered) == 2
+    assert sum(isinstance(handler, MessageHandler) for handler in registered) == 2
     assert isinstance(application.handlers[-1][0], MessageHandler)
