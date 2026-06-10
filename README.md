@@ -36,6 +36,36 @@ alembic upgrade head                    # crea data/tracker.db
 python -m src.main
 ```
 
+## Dashboard web local
+
+La versión 1.1 incluye un dashboard Flask de solo lectura para consultar la misma
+base SQLite que usa el bot. Escucha únicamente en `http://127.0.0.1:5000`: no se
+expone a otros equipos de la red y no tiene endpoints de escritura.
+
+Con la base migrada y el entorno instalado, abrí dos terminales:
+
+```powershell
+# Terminal 1: bot de Telegram
+start_bot.bat
+
+# Terminal 2: dashboard local
+start_web.bat
+```
+
+También podés iniciarlo con `python -m src.web`. Bot y dashboard pueden ejecutarse
+al mismo tiempo: SQLite usa WAL, el bot escribe y cada request web abre una sesión
+breve de lectura que se cierra al terminar.
+
+El dashboard incluye:
+
+- Resumen mensual por moneda, último peso, salud reciente, gimnasio y actividad.
+- Finanzas por mes y moneda, con flujo diario, categorías y movimientos.
+- Progresión por ejercicio con peso máximo y 1RM estimado.
+- Historial de 30, 90 o 365 días para peso, sueño, ánimo, energía y agua.
+
+Los gráficos usan Chart.js 4.5.1 desde CDN, por lo que necesitan conexión a internet
+al cargar la página. El resto del dashboard y todos los datos permanecen locales.
+
 ### Descubrir tu `chat_id`
 
 Mandale cualquier mensaje al bot. En la consola / `logs/tracker.log` vas a ver:
@@ -89,7 +119,7 @@ automático nocturno a la hora definida en `BACKUP_DAILY_HOUR`.
 ```powershell
 .venv\Scripts\activate
 pip install -r requirements-dev.txt
-pytest                 # 101 tests; los 2 marcados --live (Groq) se saltan sin API key
+pytest                 # 129 tests; los 2 marcados --live (Groq) se saltan sin API key
 ruff check .
 ruff format --check .
 ```
@@ -106,6 +136,9 @@ Para correr los smoke tests reales contra Groq, configurá `GROQ_API_KEY` y pas�
 | `alembic: command not found` o la DB no se crea | El venv no está activado o faltan deps. Activá `.venv` y `pip install -r requirements.txt`. |
 | Errores 401 / "invalid api key" al parsear | `GROQ_API_KEY` o `TELEGRAM_BOT_TOKEN` vacíos o mal pegados en `.env`. |
 | `database is locked` | Otra instancia del bot abierta sobre el mismo `tracker.db`. Cerrá la duplicada; SQLite usa WAL + busy_timeout pero no soporta dos escritores. |
+| El dashboard muestra un error 500 | Ejecutá `alembic upgrade head`, verificá `DB_PATH` y revisá que el bot y la web apunten al mismo archivo. |
+| Los gráficos no aparecen | Verificá la conexión a internet y que el navegador pueda cargar Chart.js desde `cdn.jsdelivr.net`. Las tablas siguen disponibles sin el CDN. |
+| No abre `127.0.0.1:5000` | Confirmá que `start_web.bat` siga abierto y que otro proceso no esté usando el puerto 5000. |
 
 ## Estructura
 
@@ -119,7 +152,8 @@ src/
 ├── bot/               # handlers, commands, maintenance, backup_commands, auth
 ├── db/                # models, session (WAL), repositories
 ├── domain/            # schemas Pydantic + catálogos
-└── utils/             # parsing de fechas
+├── utils/             # parsing de fechas
+└── web/               # Flask, consultas analíticas, templates y assets
 ```
 
 Ver `CHANGELOG.md` para el detalle de hitos y `personal-tracker-spec.md` para la

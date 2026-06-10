@@ -2,6 +2,34 @@
 
 Todas las versiones notables de Personal Tracker Bot.
 
+## [1.1.0] — 2026-06-10
+
+Dashboard web local de solo lectura para consultar finanzas, gimnasio, peso y salud
+desde el navegador sin detener el bot.
+
+### Agregado
+
+- Aplicación Flask 3.1 con factory inyectable y arranque mediante `start_web.bat` o
+  `python -m src.web`, limitada a `127.0.0.1:5000`.
+- Resumen mensual separado por moneda, último peso, promedios de salud, sesiones de
+  gimnasio y actividad reciente.
+- Panel financiero con filtros de mes/moneda, gráficos diarios y por categoría, y
+  tabla de movimientos.
+- Panel de gimnasio con selector de ejercicio, peso máximo, 1RM estimado y detalle
+  de las últimas sesiones.
+- Panel de salud para 30, 90 o 365 días con peso, media móvil, sueño, ánimo, energía,
+  agua y representación explícita de datos faltantes.
+- Layout responsive con Jinja, CSS propio y Chart.js 4.5.1 desde CDN.
+
+### Integración
+
+- Consultas serializables de solo lectura mediante sesiones breves sobre SQLite WAL.
+- Lecturas web verificadas mientras el bot mantiene una transacción de escritura.
+- Respuestas 500 controladas ante base ausente, esquema incompatible o fallo de
+  consulta, sin exponer detalles internos.
+- 129 tests pasando y 2 tests `--live` omitidos sin credenciales; Ruff y Alembic
+  verificados.
+
 ## [1.0.0] — 2026-06-09
 
 Primera versión funcional del MVP. Bot de Telegram single-user que registra
