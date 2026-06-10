@@ -20,7 +20,7 @@ recién guarda cuando confirmás.
 ## Setup (Windows / PowerShell)
 
 ```powershell
-git clone <repo>
+git clone https://github.com/bautidaskus/Bot-telegram.git
 cd "Bot registro cosas"
 
 python -m venv .venv
