@@ -57,11 +57,40 @@ def create_app(
 
     @app.get("/gym")
     def gym() -> str:
-        return render_template("page.html", title="Gimnasio", active="gym")
+        requested_exercise = request.args.get("exercise", "")
+        with session_factory() as session:
+            queries = DashboardQueries(session)
+            exercises = queries.exercises()
+            selected_exercise = (
+                requested_exercise
+                if requested_exercise in exercises
+                else exercises[0]
+                if exercises
+                else None
+            )
+            progression = (
+                queries.exercise_progression(selected_exercise) if selected_exercise else []
+            )
+            sessions = queries.gym_summary(date(1970, 1, 1), today(), limit=10)["sessions"]
+        return render_template(
+            "gym.html",
+            active="gym",
+            exercises=exercises,
+            exercise=selected_exercise,
+            progression=progression,
+            sessions=sessions,
+        )
 
     @app.get("/salud")
     def health() -> str:
-        return render_template("page.html", title="Salud", active="health")
+        days = parse_days(request.args.get("days"))
+        current_day = today()
+        start = current_day - timedelta(days=days - 1)
+        with session_factory() as session:
+            history = DashboardQueries(session).health_history(start, current_day)
+        return render_template(
+            "health.html", active="health", days=days, periods=(30, 90, 365), history=history
+        )
 
     @app.get("/healthz")
     def healthz():  # type: ignore[no-untyped-def]
@@ -100,3 +129,11 @@ def format_number(value: float | int | None) -> str:
         return "—"
     formatted = f"{value:,.2f}"
     return formatted.replace(",", "_").replace(".", ",").replace("_", ".")
+
+
+def parse_days(raw: str | None) -> int:
+    try:
+        value = int(raw or "")
+    except ValueError:
+        return 30
+    return value if value in {30, 90, 365} else 30

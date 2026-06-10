@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Gimnasio{% endblock %}
+{% block content %}
+  <section class="page-heading page-heading--with-filter">
+    <div><p class="eyebrow">Rendimiento</p><h1>Gimnasio</h1></div>
+    {% if exercises %}
+      <form class="filters" method="get">
+        <label>Ejercicio
+          <select name="exercise">
+            {% for item in exercises %}<option value="{{ item }}" {% if item == exercise %}selected{% endif %}>{{ item|replace('_', ' ') }}</option>{% endfor %}
+          </select>
+        </label>
+        <button type="submit">Aplicar</button>
+      </form>
+    {% endif %}
+  </section>
+
+  {% if exercises %}
+    <section class="chart-panel gym-chart">
+      <div class="section-heading"><p class="eyebrow">{{ exercise|replace('_', ' ') }}</p><h2>Progresión</h2></div>
+      <div class="chart-frame"><canvas id="gym-chart"></canvas></div>
+    </section>
+
+    <section class="sessions-section">
+      <div class="section-heading"><p class="eyebrow">Detalle</p><h2>Últimas sesiones</h2></div>
+      {% if sessions %}
+        <div class="session-list">
+          {% for session in sessions %}
+            <article class="session-card">
+              <header><div><time datetime="{{ session.date }}">{{ session.date }}</time><h3>{{ session.kind or "Entrenamiento" }}</h3></div><span>{{ session.duration_min ~ " min" if session.duration_min else "—" }}</span></header>
+              <div class="set-list">
+                {% for set in session.sets %}
+                  <div><span>{{ set.exercise|replace('_', ' ') }} · serie {{ set.set_number }}</span><strong>{% if set.weight_kg is not none %}{{ set.weight_kg|number }} kg{% else %}—{% endif %}{% if set.reps is not none %} × {{ set.reps }}{% endif %}</strong></div>
+                {% endfor %}
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty-state"><span class="empty-index">00</span><div><h2>Sin datos</h2><p>Las sesiones aparecerán acá cuando el bot las registre.</p></div></div>
+      {% endif %}
+    </section>
+  {% else %}
+    <section class="empty-state"><span class="empty-index">00</span><div><h2>Sin datos</h2><p>Registrá una sesión para habilitar el panel de ejercicios.</p></div></section>
+  {% endif %}
+
+  <script id="gym-data" type="application/json">{{ {"progression": progression}|tojson }}</script>
+{% endblock %}
+{% block scripts %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
+  <script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+{% endblock %}

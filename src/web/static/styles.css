@@ -272,6 +272,72 @@ h1 {
   margin-top: 72px;
 }
 
+.gym-chart {
+  margin-top: 8px;
+}
+
+.sessions-section {
+  margin-top: 72px;
+}
+
+.session-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.session-card {
+  padding: 24px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.session-card header {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.session-card time,
+.session-card header > span,
+.set-list span {
+  color: var(--muted);
+  font: 0.78rem/1.4 Arial, sans-serif;
+}
+
+.session-card h3 {
+  margin: 7px 0 0;
+  font-size: 1.5rem;
+  font-weight: 400;
+  text-transform: capitalize;
+}
+
+.set-list > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.set-list strong {
+  white-space: nowrap;
+  font-family: Arial, sans-serif;
+  font-size: 0.9rem;
+}
+
+.health-charts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.health-charts .chart-panel--wide {
+  grid-column: 1 / -1;
+}
+
 .section-heading h2,
 .chart-panel h2 {
   font-size: 2rem;
@@ -409,8 +475,14 @@ footer {
 
   .metric-grid--three,
   .snapshot-grid,
-  .chart-grid {
+  .chart-grid,
+  .session-list,
+  .health-charts {
     grid-template-columns: 1fr;
+  }
+
+  .health-charts .chart-panel--wide {
+    grid-column: auto;
   }
 
   .snapshot + .snapshot {
