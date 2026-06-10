@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>{% block title %}Tracker{% endblock %} · Personal Tracker</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="site-header">
+        <a class="brand" href="{{ url_for('index') }}">
+          <span class="brand-mark">PT</span>
+          <span>Personal Tracker</span>
+        </a>
+        <nav aria-label="Navegación principal">
+          <a {% if active == 'index' %}aria-current="page"{% endif %} href="{{ url_for('index') }}">Resumen</a>
+          <a {% if active == 'finances' %}aria-current="page"{% endif %} href="{{ url_for('finances') }}">Finanzas</a>
+          <a {% if active == 'gym' %}aria-current="page"{% endif %} href="{{ url_for('gym') }}">Gimnasio</a>
+          <a {% if active == 'health' %}aria-current="page"{% endif %} href="{{ url_for('health') }}">Salud</a>
+        </nav>
+      </header>
+      <main>
+        {% block content %}{% endblock %}
+      </main>
+      <footer>Dashboard local · Solo lectura</footer>
+    </div>
+  </body>
+</html>

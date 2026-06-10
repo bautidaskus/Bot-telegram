@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+  <section class="page-heading">
+    <p class="eyebrow">Panel personal</p>
+    <h1>{{ title }}</h1>
+  </section>
+  <section class="empty-state">
+    <span class="empty-index">00</span>
+    <div>
+      <h2>Sin datos</h2>
+      <p>Los registros aparecerán acá cuando el bot los guarde.</p>
+    </div>
+  </section>
+{% endblock %}
