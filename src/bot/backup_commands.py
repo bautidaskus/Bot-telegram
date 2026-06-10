@@ -21,7 +21,7 @@ class BotBackup:
     def __init__(
         self,
         *,
-        allowed_chat_id: int,
+        allowed_chat_id: int | None,
         db_path: Path,
         backup_dir: Path,
         retention_days: int = 30,

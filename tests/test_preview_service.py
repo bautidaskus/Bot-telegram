@@ -141,10 +141,10 @@ def test_expire_pending_previews_and_reject_confirmation(
             parsed=parsed_batch(),
             now=now,
         )
-        expired_ids = service.expire_pending(now=now + timedelta(minutes=11))
+        expired = service.expire_pending(now=now + timedelta(minutes=11))
         session.commit()
 
-        assert expired_ids == [preview.id]
+        assert [item.id for item in expired] == [preview.id]
         assert preview.estado == "expirado"
         with pytest.raises(PreviewExpiredError):
             service.confirm(

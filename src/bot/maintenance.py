@@ -31,7 +31,7 @@ class BotMaintenance:
     def __init__(
         self,
         *,
-        allowed_chat_id: int,
+        allowed_chat_id: int | None,
         session_factory: sessionmaker[Session],
     ) -> None:
         self.allowed_chat_id = allowed_chat_id

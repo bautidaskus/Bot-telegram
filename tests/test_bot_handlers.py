@@ -140,6 +140,25 @@ async def test_unauthorized_callback_is_ignored(
 
 
 @pytest.mark.asyncio
+async def test_discovery_mode_without_chat_id_ignores_text(
+    session_factory: sessionmaker[Session],
+) -> None:
+    parser = FakeParser(expense_response())
+    handlers = BotHandlers(
+        allowed_chat_id=None,
+        parser=parser,
+        session_factory=session_factory,
+        now=lambda: datetime(2026, 6, 9, 10, 0),
+    )
+    update = text_update("Gasté 1500")
+
+    await handlers.handle_text(update, SimpleNamespace())
+
+    assert parser.calls == []
+    assert update.message.replies == []
+
+
+@pytest.mark.asyncio
 async def test_authorized_text_creates_preview_with_buttons(
     session_factory: sessionmaker[Session],
 ) -> None:
@@ -411,6 +430,111 @@ async def test_cancel_callback_discards_preview(
     with session_factory() as session:
         assert session.query(Preview).one().estado == "cancelado"
         assert session.query(Transaccion).count() == 0
+
+
+@pytest.mark.asyncio
+async def test_expired_preview_callback_notifies_without_saving(
+    session_factory: sessionmaker[Session],
+) -> None:
+    moment = {"value": datetime(2026, 6, 9, 10, 0)}
+    handlers = BotHandlers(
+        allowed_chat_id=123,
+        parser=FakeParser(expense_response()),
+        session_factory=session_factory,
+        now=lambda: moment["value"],
+    )
+    message_update = text_update("Gasté 1500")
+    await handlers.handle_text(message_update, SimpleNamespace())
+    callback_data = message_update.message.replies[0][1].inline_keyboard[0][0].callback_data
+    moment["value"] = datetime(2026, 6, 9, 10, 11)
+    update = callback_update(callback_data)
+
+    await handlers.handle_callback(update, SimpleNamespace())
+
+    assert "expirado" in update.callback_query.edits[0][0]
+    with session_factory() as session:
+        assert session.query(Transaccion).count() == 0
+        assert session.query(Preview).one().estado == "expirado"
+
+
+@pytest.mark.asyncio
+async def test_callback_on_resolved_preview_notifies_state(
+    session_factory: sessionmaker[Session],
+) -> None:
+    handlers = BotHandlers(
+        allowed_chat_id=123,
+        parser=FakeParser(expense_response()),
+        session_factory=session_factory,
+        now=lambda: datetime(2026, 6, 9, 10, 0),
+    )
+    message_update = text_update("Gasté 1500")
+    await handlers.handle_text(message_update, SimpleNamespace())
+    keyboard = message_update.message.replies[0][1].inline_keyboard[0]
+    save_update = callback_update(keyboard[0].callback_data)
+    await handlers.handle_callback(save_update, SimpleNamespace())
+    cancel_update = callback_update(keyboard[1].callback_data)
+
+    await handlers.handle_callback(cancel_update, SimpleNamespace())
+
+    assert "ya fue resuelto" in cancel_update.callback_query.edits[0][0]
+
+
+@pytest.mark.asyncio
+async def test_correct_callback_keeps_preview_actionable(
+    session_factory: sessionmaker[Session],
+) -> None:
+    handlers = BotHandlers(
+        allowed_chat_id=123,
+        parser=FakeParser(expense_response()),
+        session_factory=session_factory,
+        now=lambda: datetime(2026, 6, 9, 10, 0),
+    )
+    message_update = text_update("Gasté 1500")
+    await handlers.handle_text(message_update, SimpleNamespace())
+    callback_data = message_update.message.replies[0][1].inline_keyboard[0][2].callback_data
+    update = callback_update(callback_data)
+
+    await handlers.handle_callback(update, SimpleNamespace())
+
+    _, keyboard = update.callback_query.edits[0]
+    assert [button.text for button in keyboard.inline_keyboard[0]] == [
+        "Guardar",
+        "Cancelar",
+        "Corregir",
+    ]
+
+
+class FakeBot:
+    def __init__(self) -> None:
+        self.edits: list[tuple[int, int, str]] = []
+
+    async def edit_message_text(self, *, chat_id: int, message_id: int, text: str) -> None:
+        self.edits.append((chat_id, message_id, text))
+
+
+@pytest.mark.asyncio
+async def test_expire_previews_job_edits_messages(
+    session_factory: sessionmaker[Session],
+) -> None:
+    moment = {"value": datetime(2026, 6, 9, 10, 0)}
+    handlers = BotHandlers(
+        allowed_chat_id=123,
+        parser=FakeParser(expense_response()),
+        session_factory=session_factory,
+        now=lambda: moment["value"],
+    )
+    message_update = text_update("Gasté 1500")
+    await handlers.handle_text(message_update, SimpleNamespace())
+    moment["value"] = datetime(2026, 6, 9, 10, 11)
+    bot = FakeBot()
+
+    await handlers.expire_previews(SimpleNamespace(bot=bot))
+
+    assert bot.edits == [
+        (123, 789, "⌛ Preview expirado, reenviá el mensaje si querés registrarlo.")
+    ]
+    with session_factory() as session:
+        assert session.query(Preview).one().estado == "expirado"
 
 
 @pytest.mark.asyncio

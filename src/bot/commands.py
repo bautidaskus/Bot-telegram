@@ -20,7 +20,7 @@ class BotCommands:
     def __init__(
         self,
         *,
-        allowed_chat_id: int,
+        allowed_chat_id: int | None,
         session_factory: sessionmaker[Session],
         today: Callable[[], date] = date.today,
     ) -> None:

@@ -11,8 +11,10 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Protocol
 
+from loguru import logger
 from sqlalchemy.orm import Session, sessionmaker
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import BadRequest, TelegramError
 
 from src.ai.parser import ParserUnavailableError
 from src.ai.whisper_client import MAX_AUDIO_BYTES, EmptyTranscriptionError
@@ -24,7 +26,7 @@ from src.bot.callbacks import (
     build_preview_callback,
     parse_callback,
 )
-from src.bot.preview_service import PreviewService
+from src.bot.preview_service import PreviewExpiredError, PreviewService, PreviewStateError
 from src.db.repositories import GymRepository
 from src.domain.schemas import ParserResponse
 from src.utils.dates import DateParseError, parse_spanish_date
@@ -60,7 +62,7 @@ class BotHandlers:
     def __init__(
         self,
         *,
-        allowed_chat_id: int,
+        allowed_chat_id: int | None,
         parser: ParserProtocol,
         whisper: WhisperProtocol | None = None,
         audio_converter: AudioConverterProtocol | None = None,
@@ -240,22 +242,57 @@ class BotHandlers:
 
     async def _handle_preview_action(self, query: Any, callback: PreviewCallback) -> None:
         if callback.action == "corregir":
-            await query.edit_message_text(
-                "Corrección guiada pendiente. Usá /editar cuando esté disponible."
-            )
+            try:
+                await query.edit_message_text(
+                    "La corrección guiada todavía no está implementada. Cancelá y reenviá el "
+                    "mensaje corregido, o guardá y después usá /editar <tipo> <id>.",
+                    reply_markup=_preview_keyboard(callback.preview_id),
+                )
+            except BadRequest:
+                pass
             return
         with self.session_factory() as session:
             service = PreviewService(session)
-            if callback.action == "guardar":
-                saved = service.confirm(callback.preview_id, now=self.now())
-                session.commit()
-                lines = ["Guardado"] + [f"{item.kind}: {item.identifier}" for item in saved]
-                response = "\n".join(lines)
-            else:
-                service.cancel(callback.preview_id, now=self.now())
-                session.commit()
-                response = "Cancelado"
-        await query.edit_message_text(response)
+            try:
+                if callback.action == "guardar":
+                    saved = service.confirm(callback.preview_id, now=self.now())
+                    lines = ["Guardado"] + [f"{item.kind}: {item.identifier}" for item in saved]
+                    response = "\n".join(lines)
+                else:
+                    service.cancel(callback.preview_id, now=self.now())
+                    response = "Cancelado"
+            except PreviewExpiredError:
+                response = "⌛ Preview expirado, reenviá el mensaje si querés registrarlo."
+            except PreviewStateError:
+                response = "Este preview ya fue resuelto."
+            session.commit()
+        try:
+            await query.edit_message_text(response)
+        except BadRequest:
+            pass
+
+    async def expire_previews(self, context: Any) -> None:
+        """Expira previews vencidos y edita sus mensajes (spec §5.3)."""
+
+        with self.session_factory() as session:
+            expired = PreviewService(session).expire_pending(now=self.now())
+            targets = [
+                (preview.chat_id, preview.message_id)
+                for preview in expired
+                if preview.message_id is not None
+            ]
+            session.commit()
+        for chat_id, message_id in targets:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text="⌛ Preview expirado, reenviá el mensaje si querés registrarlo.",
+                )
+            except TelegramError as error:
+                logger.warning(
+                    "No se pudo editar el preview expirado (mensaje {}): {}", message_id, error
+                )
 
     async def _handle_clarification(self, query: Any, callback: ClarificationCallback) -> None:
         with self.session_factory() as session:

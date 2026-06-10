@@ -42,6 +42,21 @@ def test_settings_load_required_values_and_defaults(
     assert settings.db_path == Path("data/tracker.db")
 
 
+def test_settings_allow_empty_chat_id_for_discovery(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clear_config_environment(monkeypatch)
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "TELEGRAM_BOT_TOKEN=test-token\nALLOWED_CHAT_ID=\nGROQ_API_KEY=test-key\n",
+        encoding="utf-8",
+    )
+
+    settings = Settings(_env_file=env_file)
+
+    assert settings.allowed_chat_id is None
+
+
 def test_settings_reject_missing_required_values(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

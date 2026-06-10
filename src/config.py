@@ -12,10 +12,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Carga y valida la configuración desde variables de entorno."""
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore", env_ignore_empty=True
+    )
 
     telegram_bot_token: SecretStr
-    allowed_chat_id: int
+    # None habilita el modo descubrimiento: el bot ignora mensajes y loguea el chat_id (spec §11).
+    allowed_chat_id: int | None = None
     groq_api_key: SecretStr
     groq_llm_model: str = "llama-3.3-70b-versatile"
     groq_whisper_model: str = "whisper-large-v3"

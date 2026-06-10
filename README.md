@@ -89,7 +89,7 @@ automático nocturno a la hora definida en `BACKUP_DAILY_HOUR`.
 ```powershell
 .venv\Scripts\activate
 pip install -r requirements-dev.txt
-pytest                 # 87 tests; los 2 marcados --live (Groq) se saltan sin API key
+pytest                 # 101 tests; los 2 marcados --live (Groq) se saltan sin API key
 ruff check .
 ruff format --check .
 ```

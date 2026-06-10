@@ -127,7 +127,7 @@ class PreviewService:
         self.session.flush()
         return preview
 
-    def expire_pending(self, *, now: datetime) -> list[str]:
+    def expire_pending(self, *, now: datetime) -> list[Preview]:
         """Marca como expirados los previews cuyo plazo terminó."""
 
         statement = select(Preview).where(Preview.estado == "pendiente", Preview.expira_en <= now)
@@ -135,7 +135,7 @@ class PreviewService:
         for preview in previews:
             preview.estado = "expirado"
         self.session.flush()
-        return [preview.id for preview in previews]
+        return previews
 
     def store_ambiguity(
         self,

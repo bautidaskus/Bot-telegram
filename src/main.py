@@ -6,6 +6,7 @@ from datetime import datetime, time
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from loguru import logger
 from sqlalchemy.orm import sessionmaker
 from telegram.ext import (
     Application,
@@ -102,11 +103,19 @@ def build_application(settings: Settings) -> Application[Any, Any, Any, Any, Any
         Application.builder().token(settings.telegram_bot_token.get_secret_value()).build()
     )
     register_handlers(application, handlers, commands, maintenance, backup)
+    application.add_error_handler(_log_unhandled_error)
     application.job_queue.run_daily(
         backup.scheduled_backup,
         time=time(hour=settings.backup_daily_hour, tzinfo=timezone),
     )
+    application.job_queue.run_repeating(handlers.expire_previews, interval=60, first=10)
     return application
+
+
+async def _log_unhandled_error(_: object, context: Any) -> None:
+    """Deja los errores no manejados en el log rotado en vez de stderr suelto."""
+
+    logger.opt(exception=context.error).error("Error no manejado procesando un update")
 
 
 def main() -> None:
@@ -114,6 +123,11 @@ def main() -> None:
 
     settings = get_settings()
     configure_logging(settings)
+    if settings.allowed_chat_id is None:
+        logger.warning(
+            "ALLOWED_CHAT_ID no está configurado: mandale un mensaje al bot, copiá el "
+            "chat_id que aparece en este log a tu .env y reiniciá."
+        )
     build_application(settings).run_polling(drop_pending_updates=False)
 
 
