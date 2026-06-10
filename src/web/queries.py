@@ -199,6 +199,66 @@ class DashboardQueries:
             )
         return progression
 
+    def recent_activity(self, *, limit: int = 8) -> list[dict[str, Any]]:
+        transactions = self.session.scalars(
+            select(Transaccion)
+            .order_by(Transaccion.fecha.desc(), Transaccion.id.desc())
+            .limit(limit)
+        ).all()
+        gym_sessions = self.session.scalars(
+            select(GymSesion).order_by(GymSesion.fecha.desc(), GymSesion.id.desc()).limit(limit)
+        ).all()
+        weights = self.session.scalars(
+            select(Peso).order_by(Peso.fecha.desc(), Peso.id.desc()).limit(limit)
+        ).all()
+        health_records = self.session.scalars(
+            select(Salud).order_by(Salud.fecha.desc()).limit(limit)
+        ).all()
+        activity = [
+            {
+                "date": item.fecha.isoformat(),
+                "kind": "finance",
+                "title": "Ingreso" if item.tipo == "ingreso" else "Gasto",
+                "detail": f"{number(item.monto):.2f} {item.moneda} · {item.categoria}",
+                "order": item.id,
+            }
+            for item in transactions
+        ]
+        activity.extend(
+            {
+                "date": item.fecha.isoformat(),
+                "kind": "gym",
+                "title": "Sesión de gimnasio",
+                "detail": item.tipo or "Sin tipo",
+                "order": item.id,
+            }
+            for item in gym_sessions
+        )
+        activity.extend(
+            {
+                "date": item.fecha.isoformat(),
+                "kind": "weight",
+                "title": "Peso",
+                "detail": f"{number(item.kg):.2f} kg",
+                "order": item.id,
+            }
+            for item in weights
+        )
+        activity.extend(
+            {
+                "date": item.fecha.isoformat(),
+                "kind": "health",
+                "title": "Salud",
+                "detail": health_detail(item),
+                "order": 0,
+            }
+            for item in health_records
+        )
+        activity.sort(key=lambda item: (item["date"], item["order"]), reverse=True)
+        for item in activity:
+            item.pop("order")
+        return activity[:limit]
+
 
 def month_bounds(value: date) -> tuple[date, date]:
     start = value.replace(day=1)
@@ -258,3 +318,14 @@ def serialize_gym_session(item: GymSesion) -> dict[str, Any]:
             for gym_set in sets
         ],
     }
+
+
+def health_detail(item: Salud) -> str:
+    values = []
+    if item.animo is not None:
+        values.append(f"Ánimo {item.animo}/10")
+    if item.energia is not None:
+        values.append(f"Energía {item.energia}/10")
+    if item.sueno_horas is not None:
+        values.append(f"Sueño {number(item.sueno_horas):.2f} h")
+    return " · ".join(values) or "Registro diario"

@@ -190,6 +190,26 @@ def test_gym_summary_and_progression_are_serialized_before_session_closes(
     ]
 
 
+def test_recent_activity_combines_domains_in_reverse_chronological_order(
+    session_factory: sessionmaker[Session],
+) -> None:
+    with session_factory.begin() as session:
+        session.add_all(
+            [
+                transaction(date(2026, 6, 7), "gasto", "500", "ARS", "comida"),
+                Peso(fecha=date(2026, 6, 8), kg=Decimal("78.40")),
+                Salud(fecha=date(2026, 6, 9), animo=8),
+                GymSesion(fecha=date(2026, 6, 10), tipo="push"),
+            ]
+        )
+
+    with session_factory() as session:
+        activity = DashboardQueries(session).recent_activity(limit=3)
+
+    assert [item["kind"] for item in activity] == ["gym", "health", "weight"]
+    assert activity[0]["date"] == "2026-06-10"
+
+
 def transaction(
     day: date,
     kind: str,
