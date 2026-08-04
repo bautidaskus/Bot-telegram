@@ -1,6 +1,6 @@
 # Gym-Only Tracker Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Convertir el Personal Tracker Bot en un tracker exclusivo de gimnasio con captura conversacional incremental, matching difuso de ejercicios y un check-in nocturno respondible con taps.
 
@@ -64,7 +64,7 @@
 - Consumes: nada (primera tarea)
 - Produces: `GymSesion` con `etiqueta: str`, `estado: str`, `ejercicio_actual_id: int | None`, `peso_actual: Decimal | None`, `ultima_actividad: datetime`, `cerrada_en: datetime | None`. `Checkin` con PK `fecha: date` y campos `puntaje_dia`, `animo`, `energia`, `hora_acostado`, `mejor_del_dia`, `estado`.
 
-- [ ] **Step 1: Escribir el test de migración que falla**
+- [x] **Step 1: Escribir el test de migración que falla**
 
 En `tests/test_migrations.py`, agregar:
 
@@ -106,12 +106,12 @@ def _run_alembic(db_path: Path, *args: str) -> None:
     assert result.returncode == 0, result.stderr
 ```
 
-- [ ] **Step 2: Correr el test para verificar que falla**
+- [x] **Step 2: Correr el test para verificar que falla**
 
 Run: `pytest tests/test_migrations.py::test_upgrade_drops_finance_and_adds_checkin -v`
 Expected: FAIL — no existe la revisión `20260804_02`, `checkin` no está entre las tablas.
 
-- [ ] **Step 3: Actualizar los modelos**
+- [x] **Step 3: Actualizar los modelos**
 
 En `src/db/models.py`: borrar las clases `Transaccion`, `Peso` y `Salud`. Reemplazar `GymSesion` por:
 
@@ -171,7 +171,7 @@ class Checkin(Base):
     )
 ```
 
-- [ ] **Step 4: Escribir la migración**
+- [x] **Step 4: Escribir la migración**
 
 Crear `alembic/versions/20260804_02_gym_only.py`:
 
@@ -233,12 +233,12 @@ def downgrade() -> None:
 
 Las sesiones preexistentes quedan en `estado = 'cerrada'` (el `server_default`), que es lo correcto: son entrenamientos ya terminados.
 
-- [ ] **Step 5: Correr el test para verificar que pasa**
+- [x] **Step 5: Correr el test para verificar que pasa**
 
 Run: `pytest tests/test_migrations.py -v`
 Expected: PASS
 
-- [ ] **Step 6: Backup real y aplicar la migración a la base de producción**
+- [x] **Step 6: Backup real y aplicar la migración a la base de producción**
 
 ```bash
 .venv/Scripts/python.exe -c "from pathlib import Path; from src.backup import crear_backup; print(crear_backup(Path('data/tracker.db'), Path('data/backups')))"
@@ -247,7 +247,7 @@ Expected: PASS
 
 Verificar que el backup existe en `data/backups/` **antes** de correr el upgrade. Si `src.backup` expone otro nombre de función, usar el que exista (leer `src/backup.py`).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/db/models.py alembic/versions/20260804_02_gym_only.py tests/test_migrations.py
@@ -276,7 +276,7 @@ git commit -m "feat(db): reducir el dominio a gimnasio y agregar check-in"
   - `GymRepository.add_alias(ejercicio_id, alias) -> None`
   - `CheckinRepository.get_or_create(fecha) -> Checkin`, `.update(fecha, **changes) -> Checkin`
 
-- [ ] **Step 1: Escribir los tests que fallan**
+- [x] **Step 1: Escribir los tests que fallan**
 
 Reemplazar `tests/test_repositories.py` (los tests de finanzas/peso/salud se borran) por:
 
@@ -394,12 +394,12 @@ def test_checkin_partial_updates_persist(session_factory: sessionmaker[Session])
         assert (stored.puntaje_dia, stored.animo, stored.estado) == (8, 6, "completo")
 ```
 
-- [ ] **Step 2: Correr los tests para verificar que fallan**
+- [x] **Step 2: Correr los tests para verificar que fallan**
 
 Run: `pytest tests/test_repositories.py -v`
 Expected: FAIL con `ImportError: cannot import name 'CheckinRepository'`
 
-- [ ] **Step 3: Implementar los repositorios**
+- [x] **Step 3: Implementar los repositorios**
 
 En `src/db/repositories.py`: borrar `FinanceRepository`, `WeightRepository`, `HealthRepository` y `WeightAlreadyExistsError`. Ajustar el import a `from src.db.models import Checkin, Ejercicio, GymSesion, GymSet`. Reemplazar `GymRepository` por:
 
@@ -551,12 +551,12 @@ class CheckinRepository:
 
 Agregar `import json` y `from datetime import date, datetime` arriba, y `from sqlalchemy import func, select`.
 
-- [ ] **Step 4: Correr los tests para verificar que pasan**
+- [x] **Step 4: Correr los tests para verificar que pasan**
 
 Run: `pytest tests/test_repositories.py -v`
 Expected: PASS (6 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/db/repositories.py tests/test_repositories.py
@@ -579,7 +579,7 @@ git commit -m "feat(db): repositorios de sesion abierta y check-in"
   - `MatchResult(exercise_id: int, canonical: str, learned_alias: str | None)` — dataclass frozen
   - `match_exercise(raw: str, catalog: list[CatalogEntry], cutoff: float = 0.8) -> MatchResult | None`
 
-- [ ] **Step 1: Escribir los tests que fallan**
+- [x] **Step 1: Escribir los tests que fallan**
 
 Crear `tests/test_matcher.py`:
 
@@ -639,12 +639,12 @@ def test_short_unrelated_input_does_not_match() -> None:
     assert match_exercise("curl", CATALOG) is None
 ```
 
-- [ ] **Step 2: Correr los tests para verificar que fallan**
+- [x] **Step 2: Correr los tests para verificar que fallan**
 
 Run: `pytest tests/test_matcher.py -v`
 Expected: FAIL con `ModuleNotFoundError: No module named 'src.gym'`
 
-- [ ] **Step 3: Implementar el matcher**
+- [x] **Step 3: Implementar el matcher**
 
 Crear `src/gym/__init__.py` vacío y `src/gym/matcher.py`:
 
@@ -707,14 +707,14 @@ def match_exercise(
     return MatchResult(entry.exercise_id, entry.canonical, learned_alias=needle)
 ```
 
-- [ ] **Step 4: Correr los tests para verificar que pasan**
+- [x] **Step 4: Correr los tests para verificar que pasan**
 
 Run: `pytest tests/test_matcher.py -v`
 Expected: PASS (10 tests contando los parametrizados)
 
 Si `test_short_unrelated_input_does_not_match` falla porque `curl` se acerca demasiado a alguna entrada, subir `cutoff` a `0.85` y volver a correr toda la suite.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/gym/__init__.py src/gym/matcher.py tests/test_matcher.py
@@ -737,7 +737,7 @@ git commit -m "feat(gym): matcher difuso de ejercicios con aprendizaje de alias"
   - `CaptureCommand` — alias de la unión
   - `parse_capture_message(text: str) -> CaptureCommand`
 
-- [ ] **Step 1: Escribir los tests que fallan**
+- [x] **Step 1: Escribir los tests que fallan**
 
 Crear `tests/test_capture.py`:
 
@@ -816,12 +816,12 @@ def test_empty_message_is_unrecognized() -> None:
     assert parse_capture_message("   ") == Unrecognized("   ")
 ```
 
-- [ ] **Step 2: Correr los tests para verificar que fallan**
+- [x] **Step 2: Correr los tests para verificar que fallan**
 
 Run: `pytest tests/test_capture.py -v`
 Expected: FAIL con `ModuleNotFoundError: No module named 'src.gym.capture'`
 
-- [ ] **Step 3: Implementar el parser**
+- [x] **Step 3: Implementar el parser**
 
 Crear `src/gym/capture.py`:
 
@@ -932,12 +932,12 @@ def _parse_decimal(token: str | None) -> Decimal | None:
         return None
 ```
 
-- [ ] **Step 4: Correr los tests para verificar que pasan**
+- [x] **Step 4: Correr los tests para verificar que pasan**
 
 Run: `pytest tests/test_capture.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/gym/capture.py tests/test_capture.py
@@ -958,7 +958,7 @@ git commit -m "feat(gym): parser deterministico de mensajes de captura"
   - `CanonicalizerProtocol.canonicalize(raw: str) -> tuple[str, str | None]` — devuelve `(nombre_snake_case, grupo_muscular)`
   - `GymSessionService(session, canonicalizer, now)` con `handle(text: str) -> str` (devuelve el texto de respuesta) y `close_stale(cutoff: datetime) -> list[int]`
 
-- [ ] **Step 1: Escribir los tests que fallan**
+- [x] **Step 1: Escribir los tests que fallan**
 
 Crear `tests/test_session_service.py`:
 
@@ -1110,12 +1110,12 @@ def test_close_stale_closes_only_inactive(session_factory: sessionmaker[Session]
         assert GymRepository(session).get_open_session() is None
 ```
 
-- [ ] **Step 2: Correr los tests para verificar que fallan**
+- [x] **Step 2: Correr los tests para verificar que fallan**
 
 Run: `pytest tests/test_session_service.py -v`
 Expected: FAIL con `ModuleNotFoundError: No module named 'src.gym.session_service'`
 
-- [ ] **Step 3: Implementar el servicio**
+- [x] **Step 3: Implementar el servicio**
 
 Crear `src/gym/session_service.py`:
 
@@ -1250,12 +1250,12 @@ class GymSessionService:
         return f"No entendí «{command.text}». Mandá reps (7), peso (remo t 60) o «fin»."
 ```
 
-- [ ] **Step 4: Correr los tests para verificar que pasan**
+- [x] **Step 4: Correr los tests para verificar que pasan**
 
 Run: `pytest tests/test_session_service.py -v`
 Expected: PASS (8 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/gym/session_service.py tests/test_session_service.py
@@ -1275,7 +1275,7 @@ git commit -m "feat(gym): servicio de sesion con peso pegajoso y deshacer"
 - Consumes: `CanonicalizerProtocol` (Task 5)
 - Produces: `LLMCanonicalizer(client, model, prompt_path)` con `.canonicalize(raw) -> tuple[str, str | None]`, y `create_groq_canonicalizer(settings) -> LLMCanonicalizer`
 
-- [ ] **Step 1: Escribir el test que falla**
+- [x] **Step 1: Escribir el test que falla**
 
 Agregar a `tests/test_parser.py`:
 
@@ -1300,12 +1300,12 @@ def test_canonicalizer_falls_back_to_slug_on_invalid_output() -> None:
 
 Reusar el doble de cliente que ya exista en el archivo; si se llama distinto, adaptar el nombre.
 
-- [ ] **Step 2: Correr los tests para verificar que fallan**
+- [x] **Step 2: Correr los tests para verificar que fallan**
 
 Run: `pytest tests/test_parser.py -v`
 Expected: FAIL con `NameError: name 'LLMCanonicalizer' is not defined`
 
-- [ ] **Step 3: Escribir el prompt del canonizador**
+- [x] **Step 3: Escribir el prompt del canonizador**
 
 Crear `prompts/canonicalizer.txt`:
 
@@ -1326,7 +1326,7 @@ Ejemplos:
 Ejercicios ya conocidos, reusá el nombre exacto si corresponde: {exercise_catalog}
 ```
 
-- [ ] **Step 4: Implementar el canonizador**
+- [x] **Step 4: Implementar el canonizador**
 
 Agregar a `src/ai/parser.py`:
 
@@ -1395,7 +1395,7 @@ def create_groq_canonicalizer(
 
 Agregar `import re` y `from src.gym.matcher import normalize` a los imports. `except (TRANSIENT_ERRORS, ...)` debe escribirse como `except (*TRANSIENT_ERRORS, json.JSONDecodeError, KeyError, ValueError, TypeError)`.
 
-- [ ] **Step 5: Reescribir el prompt del parser para dominio gym-only**
+- [x] **Step 5: Reescribir el prompt del parser para dominio gym-only**
 
 Reemplazar `prompts/parser.txt` completo:
 
@@ -1428,16 +1428,16 @@ validador `validate_session_type` y el campo `tipo_sesion`. Actualizar `src/doma
 dejando solo lo que se siga usando (borrar `CATEGORIAS_GASTO`, `CATEGORIAS_INGRESO`,
 `METODOS_PAGO`, `TIPOS_SESION`); si queda vacío, borrar el archivo y sus imports.
 
-- [ ] **Step 6: Cambiar el modelo por defecto**
+- [x] **Step 6: Cambiar el modelo por defecto**
 
 En `.env.example` y en el `.env` local, poner `GROQ_LLM_MODEL=openai/gpt-oss-120b`.
 
-- [ ] **Step 7: Correr los tests**
+- [x] **Step 7: Correr los tests**
 
 Run: `pytest tests/test_parser.py tests/test_schemas.py -v`
 Expected: PASS. Borrar de `tests/test_schemas.py` los casos de gasto/ingreso/peso/salud.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/ai/parser.py prompts/ src/domain/ tests/test_parser.py tests/test_schemas.py .env.example
@@ -1456,7 +1456,7 @@ git commit -m "feat(ai): canonizador de ejercicios y prompt gym-only"
 - Consumes: `GymSessionService` (Task 5), `create_groq_canonicalizer` (Task 6), `is_authorized`
 - Produces: `GymBotHandlers(allowed_chat_id, session_factory, canonicalizer, now)` con `handle_text(update, context)`, `cancelar(update, context)`, `estado(update, context)`, `close_stale_sessions(context)`
 
-- [ ] **Step 1: Escribir los tests que fallan**
+- [x] **Step 1: Escribir los tests que fallan**
 
 Crear `tests/test_gym_handlers.py`, siguiendo el estilo de dobles que ya usa `tests/test_bot_handlers.py`:
 
@@ -1586,12 +1586,12 @@ async def test_stale_session_is_closed_and_notified(
     assert sent and sent[0][0] == CHAT_ID
 ```
 
-- [ ] **Step 2: Correr los tests para verificar que fallan**
+- [x] **Step 2: Correr los tests para verificar que fallan**
 
 Run: `pytest tests/test_gym_handlers.py -v`
 Expected: FAIL con `ModuleNotFoundError: No module named 'src.bot.gym_handlers'`
 
-- [ ] **Step 3: Implementar los handlers**
+- [x] **Step 3: Implementar los handlers**
 
 Crear `src/bot/gym_handlers.py`:
 
@@ -1696,12 +1696,12 @@ class GymBotHandlers:
             logger.warning("No pude avisar el cierre por inactividad: {}", error)
 ```
 
-- [ ] **Step 4: Correr los tests para verificar que pasan**
+- [x] **Step 4: Correr los tests para verificar que pasan**
 
 Run: `pytest tests/test_gym_handlers.py -v`
 Expected: PASS (5 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/bot/gym_handlers.py tests/test_gym_handlers.py
@@ -1723,7 +1723,7 @@ git commit -m "feat(bot): captura conversacional y autocierre por inactividad"
   - `build_checkin_callback(campo: str, valor: str) -> str`, `CheckinCallback(campo, valor)` en `callbacks.py`
   - `CheckinFlow(allowed_chat_id, session_factory, now)` con `send_prompt(context)`, `send_reminder(context)`, `handle_callback(update, context)`, `handle_free_text(update, context) -> bool`
 
-- [ ] **Step 1: Escribir los tests que fallan**
+- [x] **Step 1: Escribir los tests que fallan**
 
 Crear `tests/test_checkin.py`:
 
@@ -1854,12 +1854,12 @@ async def test_reminder_only_when_pending(session_factory: sessionmaker[Session]
     assert quiet.bot.sent == []
 ```
 
-- [ ] **Step 2: Correr los tests para verificar que fallan**
+- [x] **Step 2: Correr los tests para verificar que fallan**
 
 Run: `pytest tests/test_checkin.py -v`
 Expected: FAIL con `ModuleNotFoundError: No module named 'src.bot.checkin'`
 
-- [ ] **Step 3: Agregar el callback de check-in**
+- [x] **Step 3: Agregar el callback de check-in**
 
 En `src/bot/callbacks.py`: agregar el dataclass y las funciones, y extender `parse_callback`.
 
@@ -1896,7 +1896,7 @@ Y actualizar la anotación de retorno a `PreviewCallback | ClarificationCallback
 Borrar `ClarificationHint`/`VALID_HINTS` de finanzas: dejar `VALID_HINTS = {"gym"}` o eliminar el
 flujo de clarificación si ya no se usa (verificar con grep antes de borrar).
 
-- [ ] **Step 4: Implementar el flujo**
+- [x] **Step 4: Implementar el flujo**
 
 Crear `src/bot/checkin.py`:
 
@@ -2065,12 +2065,12 @@ def _keyboard(step: Step) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 ```
 
-- [ ] **Step 5: Correr los tests para verificar que pasan**
+- [x] **Step 5: Correr los tests para verificar que pasan**
 
 Run: `pytest tests/test_checkin.py -v`
 Expected: PASS (6 tests)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/bot/checkin.py src/bot/callbacks.py tests/test_checkin.py
@@ -2090,7 +2090,7 @@ git commit -m "feat(bot): check-in nocturno con teclados inline"
 - Consumes: `GymBotHandlers` (Task 7), `CheckinFlow` (Task 8), `create_groq_canonicalizer` (Task 6)
 - Produces: `build_application(settings)` registrando los handlers y jobs finales
 
-- [ ] **Step 1: Escribir el test de wiring que falla**
+- [x] **Step 1: Escribir el test de wiring que falla**
 
 Reemplazar el test de registro en `tests/test_main.py` por:
 
@@ -2118,12 +2118,12 @@ def test_audio_support_is_gone() -> None:
 
 Reusar el helper `_settings()` que ya exista en el archivo y agregar `import importlib.util`.
 
-- [ ] **Step 2: Correr el test para verificar que falla**
+- [x] **Step 2: Correr el test para verificar que falla**
 
 Run: `pytest tests/test_main.py -v`
 Expected: FAIL — todavía están registrados `balance`, `gastos`, `ingresos`, `ultimos`, `peso`, `salud`.
 
-- [ ] **Step 3: Borrar el audio**
+- [x] **Step 3: Borrar el audio**
 
 ```bash
 git rm src/ai/whisper_client.py src/ai/audio_converter.py
@@ -2132,7 +2132,7 @@ git rm tests/test_audio_converter.py tests/test_audio_handler.py tests/test_whis
 
 Sacar `pydub>=0.25,<1.0` de `requirements.txt`. En `src/bot/handlers.py`, borrar `handle_audio`, los protocolos `WhisperProtocol` y `AudioConverterProtocol`, los parámetros `whisper`/`audio_converter`/`temp_dir` del constructor, y los imports de `src.ai.whisper_client`. Borrar también `_collect_warnings`, `_render_warnings`, `PESO_MIN/PESO_MAX/SUENO_MIN/SUENO_MAX` y las ramas de `_render_preview` para gasto/ingreso/peso/salud.
 
-- [ ] **Step 4: Recortar los comandos**
+- [x] **Step 4: Recortar los comandos**
 
 En `src/bot/commands.py`: borrar `balance`, `gastos`, `ingresos`, `ultimos`, `weight`, `health` y sus helpers privados. Reescribir `today` para que muestre la sesión del día y el check-in:
 
@@ -2165,7 +2165,7 @@ En `src/bot/commands.py`: borrar `balance`, `gastos`, `ingresos`, `ultimos`, `we
 
 En `src/bot/maintenance.py`: reducir el mapa de tipos a `sesion` y `set`, borrando las ramas de `transaccion`, `peso` y `salud`. Actualizar el texto de `/help` en `commands.py` con la lista nueva de comandos y el flujo de captura.
 
-- [ ] **Step 5: Rewiring en main.py**
+- [x] **Step 5: Rewiring en main.py**
 
 En `src/main.py`, reemplazar `build_application` y `register_handlers`:
 
@@ -2219,7 +2219,7 @@ En `build_application`, construir `GymBotHandlers` con `create_groq_canonicalize
     application.job_queue.run_repeating(gym.close_stale_sessions, interval=600, first=30)
 ```
 
-- [ ] **Step 6: Correr la suite completa**
+- [x] **Step 6: Correr la suite completa**
 
 Run: `pytest -v`
 Expected: PASS. Borrar los tests que referencien dominios eliminados (`test_bot_handlers.py`, `test_commands.py`, `test_preview_service.py`, `test_callbacks.py`, `test_database.py` tienen casos de finanzas/peso/salud que hay que sacar).
@@ -2227,11 +2227,11 @@ Expected: PASS. Borrar los tests que referencien dominios eliminados (`test_bot_
 Run: `ruff check . && ruff format --check .`
 Expected: sin errores. Corregir imports muertos que reporte ruff.
 
-- [ ] **Step 7: Actualizar el README**
+- [x] **Step 7: Actualizar el README**
 
 Reescribir las secciones "Uso", "Comandos", "Estructura" y "Troubleshooting" para el dominio gym-only: sacar las filas de finanzas/peso/salud y ffmpeg, documentar el flujo de captura (`espalda biceps` → `dominadas` → `7` → `fin`), `deshacer`, `/cancelar`, `/estado` y el check-in nocturno.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add -u
@@ -2261,7 +2261,7 @@ Desde Telegram: mandar `espalda biceps`, `dominadas`, `7`, `6`, `remo t 60`, `10
 - Consumes: `Checkin`, `GymSesion`, `GymSet` (Task 1), `CheckinRepository` (Task 2)
 - Produces: rutas `/`, `/gym`, `/checkin`, `/healthz`; `DashboardQueries.checkin_history(days)` y `.checkin_vs_gym(days)`
 
-- [ ] **Step 1: Escribir los tests que fallan**
+- [x] **Step 1: Escribir los tests que fallan**
 
 En `tests/test_web_app.py`, reemplazar los tests de rutas por:
 
@@ -2293,12 +2293,12 @@ def test_checkin_vs_gym_splits_by_training_day(session_factory) -> None:
 
 Reusar las fixtures `client` y `session_factory` que ya existan en el archivo, adaptándolas al schema nuevo.
 
-- [ ] **Step 2: Correr los tests para verificar que fallan**
+- [x] **Step 2: Correr los tests para verificar que fallan**
 
 Run: `pytest tests/test_web_app.py -v`
 Expected: FAIL — `/checkin` devuelve 404 y `checkin_vs_gym` no existe.
 
-- [ ] **Step 3: Limpiar y extender las consultas**
+- [x] **Step 3: Limpiar y extender las consultas**
 
 En `src/web/queries.py`: borrar `month_summary`, `finance_month`, `latest_weight`, `health_averages` y sus helpers. Agregar:
 
@@ -2343,7 +2343,7 @@ En `src/web/queries.py`: borrar `month_summary`, `finance_month`, `latest_weight
 
 Ajustar `recent_activity` y `gym_summary` para usar `etiqueta` en vez de `tipo`.
 
-- [ ] **Step 4: Actualizar las rutas y templates**
+- [x] **Step 4: Actualizar las rutas y templates**
 
 En `src/web/__init__.py`: borrar las rutas `finances` y `health` junto a los helpers `parse_month`, `select_currency` y `format_number` si quedan sin uso (verificar con grep). Reescribir `index` para mostrar la sesión reciente y el check-in. Agregar:
 
@@ -2364,12 +2364,12 @@ En `src/web/__init__.py`: borrar las rutas `finances` y `health` junto a los hel
 
 Borrar `src/web/templates/finances.html` y `health.html`. Crear `checkin.html` siguiendo la estructura de los templates existentes (mismo `base.html`, mismo patrón de Chart.js), con una serie temporal de puntaje/ánimo/energía y una tarjeta con el contraste `con_gym` / `sin_gym`. Actualizar la navegación en `base.html`.
 
-- [ ] **Step 5: Correr los tests**
+- [x] **Step 5: Correr los tests**
 
 Run: `pytest tests/test_web_app.py tests/test_web_integration.py -v`
 Expected: PASS
 
-- [ ] **Step 6: Verificación en navegador**
+- [x] **Step 6: Verificación en navegador**
 
 ```bash
 .venv/Scripts/python.exe -m src.web
@@ -2377,7 +2377,7 @@ Expected: PASS
 
 Abrir `http://127.0.0.1:5000/`, `/gym` y `/checkin`. Confirmar que los tres cargan sin error y que los gráficos renderizan. Guardar capturas en `.claude/screenshots/` si se usa playwright.
 
-- [ ] **Step 7: Suite completa y commit**
+- [x] **Step 7: Suite completa y commit**
 
 Run: `pytest && ruff check . && ruff format --check .`
 Expected: todo verde.
