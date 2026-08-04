@@ -20,12 +20,10 @@ class Settings(BaseSettings):
     # None habilita el modo descubrimiento: el bot ignora mensajes y loguea el chat_id (spec §11).
     allowed_chat_id: int | None = None
     groq_api_key: SecretStr
-    groq_llm_model: str = "llama-3.3-70b-versatile"
-    groq_whisper_model: str = "whisper-large-v3"
+    groq_llm_model: str = "openai/gpt-oss-120b"
     groq_base_url: str = "https://api.groq.com/openai/v1"
 
     timezone: str = "America/Argentina/Buenos_Aires"
-    default_currency: str = "ARS"
     db_path: Path = Path("data/tracker.db")
     log_level: str = "INFO"
 
