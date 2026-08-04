@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import logging
 import threading
-from datetime import date
-from decimal import Decimal
+from datetime import date, datetime
 from pathlib import Path
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
-from src.db.models import Base, Transaccion
+from src.db.models import Base, GymSesion
 from src.db.session import create_sqlite_engine
 from src.web import create_app
 
@@ -65,7 +64,7 @@ def test_missing_database_schema_returns_controlled_error(tmp_path: Path) -> Non
     app = create_app(factory, today=lambda: date(2026, 6, 10))
     app.config.update(TESTING=False)
 
-    response = app.test_client().get("/finanzas")
+    response = app.test_client().get("/checkin")
 
     assert response.status_code == 500
     assert "No pudimos cargar el dashboard" in response.get_data(as_text=True)
@@ -75,7 +74,7 @@ def test_missing_database_schema_returns_controlled_error(tmp_path: Path) -> Non
 def test_outdated_schema_returns_controlled_error(tmp_path: Path) -> None:
     engine = create_sqlite_engine(tmp_path / "outdated.db")
     with engine.begin() as connection:
-        connection.execute(text("CREATE TABLE transaccion (id INTEGER PRIMARY KEY)"))
+        connection.execute(text("CREATE TABLE gym_sesion (id INTEGER PRIMARY KEY)"))
     factory = sessionmaker(engine, expire_on_commit=False)
     app = create_app(factory, today=lambda: date(2026, 6, 10))
     app.config.update(TESTING=False)
@@ -97,12 +96,11 @@ def test_web_read_completes_while_bot_write_transaction_is_open(tmp_path: Path) 
     def write_transaction() -> None:
         with factory() as session:
             session.add(
-                Transaccion(
+                GymSesion(
                     fecha=date(2026, 6, 10),
-                    tipo="gasto",
-                    monto=Decimal("100.00"),
-                    moneda="ARS",
-                    categoria="test",
+                    etiqueta="push",
+                    estado="cerrada",
+                    ultima_actividad=datetime(2026, 6, 10, 19, 0),
                 )
             )
             session.flush()
@@ -115,9 +113,7 @@ def test_web_read_completes_while_bot_write_transaction_is_open(tmp_path: Path) 
     assert write_started.wait(timeout=5)
 
     try:
-        response = (
-            create_app(factory, today=lambda: date(2026, 6, 10)).test_client().get("/finanzas")
-        )
+        response = create_app(factory, today=lambda: date(2026, 6, 10)).test_client().get("/gym")
     finally:
         allow_commit.set()
         writer.join(timeout=5)
@@ -125,4 +121,4 @@ def test_web_read_completes_while_bot_write_transaction_is_open(tmp_path: Path) 
     assert response.status_code == 200
     assert not writer.is_alive()
     with factory() as session:
-        assert session.query(Transaccion).count() == 1
+        assert session.query(GymSesion).count() == 1

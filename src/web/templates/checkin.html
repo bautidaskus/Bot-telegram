@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Check-in{% endblock %}
+{% block content %}
+  <section class="page-heading page-heading--with-filter">
+    <div><p class="eyebrow">Registro nocturno</p><h1>Check-in</h1></div>
+    <form class="filters" method="get">
+      <label>Período
+        <select name="days">
+          {% for item in periods %}<option value="{{ item }}" {% if item == days %}selected{% endif %}>{{ item }} días</option>{% endfor %}
+        </select>
+      </label>
+      <button type="submit">Aplicar</button>
+    </form>
+  </section>
+
+  {% if history %}
+    <section class="snapshot-grid">
+      <article class="snapshot">
+        <span class="section-label">Días con gimnasio</span>
+        <strong>{{ comparison.con_gym|number }}</strong>
+        <p>Puntaje promedio del día</p>
+      </article>
+      <article class="snapshot">
+        <span class="section-label">Días sin gimnasio</span>
+        <strong>{{ comparison.sin_gym|number }}</strong>
+        <p>Puntaje promedio del día</p>
+      </article>
+    </section>
+
+    <section class="health-charts">
+      <article class="chart-panel chart-panel--wide"><h2>Puntaje, ánimo y energía</h2><div class="chart-frame"><canvas id="checkin-chart"></canvas></div></article>
+    </section>
+  {% else %}
+    <section class="empty-state"><span class="empty-index">00</span><div><h2>Sin datos</h2><p>No hay check-ins en este período.</p></div></section>
+  {% endif %}
+
+  <section class="table-section">
+    <div class="section-heading"><p class="eyebrow">{{ days }} días</p><h2>Registro diario</h2></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Fecha</th><th>Día</th><th>Ánimo</th><th>Energía</th><th>Acostado</th></tr></thead>
+        <tbody>
+          {% for item in history|reverse %}
+            <tr>
+              <td>{{ item.fecha }}</td>
+              <td>{{ item.puntaje if item.puntaje is not none else "—" }}</td>
+              <td>{{ item.animo if item.animo is not none else "—" }}</td>
+              <td>{{ item.energia if item.energia is not none else "—" }}</td>
+              <td>{{ item.hora_acostado or "—" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  <script id="checkin-data" type="application/json">{{ {"history": history}|tojson }}</script>
+{% endblock %}
+{% block scripts %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
+  <script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+{% endblock %}

@@ -27,7 +27,7 @@
         <div class="session-list">
           {% for session in sessions %}
             <article class="session-card">
-              <header><div><time datetime="{{ session.date }}">{{ session.date }}</time><h3>{{ session.kind or "Entrenamiento" }}</h3></div><span>{{ session.duration_min ~ " min" if session.duration_min else "—" }}</span></header>
+              <header><div><time datetime="{{ session.date }}">{{ session.date }}</time><h3>{{ session.label or "Entrenamiento" }}</h3></div><span>{{ session.duration_min ~ " min" if session.duration_min else "—" }}</span></header>
               <div class="set-list">
                 {% for set in session.sets %}
                   <div><span>{{ set.exercise|replace('_', ' ') }} · serie {{ set.set_number }}</span><strong>{% if set.weight_kg is not none %}{{ set.weight_kg|number }} kg{% else %}—{% endif %}{% if set.reps is not none %} × {{ set.reps }}{% endif %}</strong></div>

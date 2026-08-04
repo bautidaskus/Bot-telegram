@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable, Iterator
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
@@ -10,146 +11,65 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from src.db.models import Ejercicio, GymSesion, GymSet, Peso, Salud, Transaccion
+from src.db.models import Checkin, Ejercicio, GymSesion, GymSet
 
 
 class DashboardQueries:
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, today: Callable[[], date] = date.today) -> None:
         self.session = session
+        self.today = today
 
-    def month_summary(self, month: date) -> list[dict[str, Any]]:
-        start, end = month_bounds(month)
-        transactions = self.session.scalars(
-            select(Transaccion)
-            .where(Transaccion.fecha >= start, Transaccion.fecha < end)
-            .order_by(Transaccion.moneda, Transaccion.fecha, Transaccion.id)
-        ).all()
-        totals: dict[str, dict[str, Decimal]] = defaultdict(
-            lambda: {"income": Decimal(), "expenses": Decimal()}
-        )
-        for transaction in transactions:
-            key = "income" if transaction.tipo == "ingreso" else "expenses"
-            totals[transaction.moneda][key] += transaction.monto
+    def checkin_history(self, days: int = 30) -> list[dict[str, Any]]:
+        """Serie diaria de puntaje, ánimo y energía."""
+
+        cutoff = self.today() - timedelta(days=days)
+        statement = select(Checkin).where(Checkin.fecha >= cutoff).order_by(Checkin.fecha)
         return [
             {
-                "currency": currency,
-                "income": number(values["income"]),
-                "expenses": number(values["expenses"]),
-                "balance": number(values["income"] - values["expenses"]),
+                "fecha": item.fecha.isoformat(),
+                "puntaje": item.puntaje_dia,
+                "animo": item.animo,
+                "energia": item.energia,
+                "hora_acostado": item.hora_acostado,
             }
-            for currency, values in sorted(totals.items())
+            for item in self.session.scalars(statement)
         ]
 
-    def finance_month(self, month: date, currency: str) -> dict[str, Any]:
-        start, end = month_bounds(month)
-        all_transactions = self.session.scalars(
-            select(Transaccion)
-            .where(Transaccion.fecha >= start, Transaccion.fecha < end)
-            .order_by(Transaccion.fecha, Transaccion.id)
-        ).all()
-        available_currencies = sorted({item.moneda for item in all_transactions})
-        transactions = [item for item in all_transactions if item.moneda == currency]
-        income = sum((item.monto for item in transactions if item.tipo == "ingreso"), Decimal())
-        expenses = sum((item.monto for item in transactions if item.tipo == "gasto"), Decimal())
-        daily_totals: dict[date, dict[str, Decimal]] = defaultdict(
-            lambda: {"income": Decimal(), "expenses": Decimal()}
-        )
-        category_totals: dict[str, Decimal] = defaultdict(Decimal)
-        for item in transactions:
-            key = "income" if item.tipo == "ingreso" else "expenses"
-            daily_totals[item.fecha][key] += item.monto
-            if item.tipo == "gasto":
-                category_totals[item.categoria] += item.monto
+    def checkin_vs_gym(self, days: int = 30) -> dict[str, float | None]:
+        """Puntaje promedio del día en jornadas con y sin entrenamiento."""
 
+        cutoff = self.today() - timedelta(days=days)
+        trained = set(
+            self.session.scalars(select(GymSesion.fecha).where(GymSesion.fecha >= cutoff))
+        )
+        scores: dict[str, list[int]] = {"con_gym": [], "sin_gym": []}
+        statement = select(Checkin).where(Checkin.fecha >= cutoff, Checkin.puntaje_dia.is_not(None))
+        for item in self.session.scalars(statement):
+            key = "con_gym" if item.fecha in trained else "sin_gym"
+            scores[key].append(item.puntaje_dia)
         return {
-            "available_currencies": available_currencies,
-            "summary": {
-                "income": number(income),
-                "expenses": number(expenses),
-                "balance": number(income - expenses),
-            },
-            "daily": [
-                {
-                    "date": day.isoformat(),
-                    "income": number(daily_totals[day]["income"]),
-                    "expenses": number(daily_totals[day]["expenses"]),
-                }
-                for day in date_range(start, end - timedelta(days=1))
-            ],
-            "categories": [
-                {"category": category, "amount": number(amount)}
-                for category, amount in sorted(
-                    category_totals.items(), key=lambda item: (-item[1], item[0])
-                )
-            ],
-            "transactions": [serialize_transaction(item) for item in transactions],
+            key: (round(sum(values) / len(values), 2) if values else None)
+            for key, values in scores.items()
         }
 
-    def latest_weight(self) -> dict[str, Any] | None:
-        latest = self.session.scalar(select(Peso).order_by(Peso.fecha.desc()).limit(1))
+    def latest_checkin(self) -> dict[str, Any] | None:
+        """Último check-in respondido, para la portada."""
+
+        statement = (
+            select(Checkin)
+            .where(Checkin.puntaje_dia.is_not(None))
+            .order_by(Checkin.fecha.desc())
+            .limit(1)
+        )
+        latest = self.session.scalar(statement)
         if latest is None:
             return None
-        window_start = latest.fecha - timedelta(days=6)
-        measurements = self.session.scalars(
-            select(Peso).where(Peso.fecha >= window_start, Peso.fecha <= latest.fecha)
-        ).all()
-        average = sum((item.kg for item in measurements), Decimal()) / len(measurements)
         return {
-            "date": latest.fecha.isoformat(),
-            "kg": number(latest.kg),
-            "average_7d": number(average),
+            "fecha": latest.fecha.isoformat(),
+            "puntaje": latest.puntaje_dia,
+            "animo": latest.animo,
+            "energia": latest.energia,
         }
-
-    def health_averages(self, today: date, *, days: int = 7) -> dict[str, float | None]:
-        start = today - timedelta(days=days - 1)
-        records = self.session.scalars(
-            select(Salud).where(Salud.fecha >= start, Salud.fecha <= today)
-        ).all()
-        fields = {
-            "sleep_hours": "sueno_horas",
-            "sleep_quality": "sueno_calidad",
-            "mood": "animo",
-            "energy": "energia",
-            "water_l": "agua_l",
-        }
-        return {
-            output: average([getattr(record, source) for record in records])
-            for output, source in fields.items()
-        }
-
-    def health_history(self, start: date, end: date) -> list[dict[str, Any]]:
-        weight_start = start - timedelta(days=6)
-        weights = self.session.scalars(
-            select(Peso).where(Peso.fecha >= weight_start, Peso.fecha <= end).order_by(Peso.fecha)
-        ).all()
-        health_records = self.session.scalars(
-            select(Salud).where(Salud.fecha >= start, Salud.fecha <= end).order_by(Salud.fecha)
-        ).all()
-        weights_by_date = {item.fecha: item for item in weights}
-        health_by_date = {item.fecha: item for item in health_records}
-        history: list[dict[str, Any]] = []
-        for day in date_range(start, end):
-            weight = weights_by_date.get(day)
-            health = health_by_date.get(day)
-            window_start = day - timedelta(days=6)
-            window_values = [item.kg for item in weights if window_start <= item.fecha <= day]
-            history.append(
-                {
-                    "date": day.isoformat(),
-                    "weight": number(weight.kg) if weight else None,
-                    "weight_average_7d": average(window_values),
-                    "sleep_hours": number(health.sueno_horas)
-                    if health and health.sueno_horas is not None
-                    else None,
-                    "sleep_quality": health.sueno_calidad if health else None,
-                    "mood": health.animo if health else None,
-                    "energy": health.energia if health else None,
-                    "water_l": number(health.agua_l)
-                    if health and health.agua_l is not None
-                    else None,
-                }
-            )
-        return history
 
     def gym_summary(self, start: date, end: date, *, limit: int = 5) -> dict[str, Any]:
         statement = (
@@ -200,59 +120,37 @@ class DashboardQueries:
         return progression
 
     def recent_activity(self, *, limit: int = 8) -> list[dict[str, Any]]:
-        transactions = self.session.scalars(
-            select(Transaccion)
-            .order_by(Transaccion.fecha.desc(), Transaccion.id.desc())
+        gym_sessions = self.session.scalars(
+            select(GymSesion)
+            .options(selectinload(GymSesion.sets))
+            .order_by(GymSesion.fecha.desc(), GymSesion.id.desc())
             .limit(limit)
         ).all()
-        gym_sessions = self.session.scalars(
-            select(GymSesion).order_by(GymSesion.fecha.desc(), GymSesion.id.desc()).limit(limit)
-        ).all()
-        weights = self.session.scalars(
-            select(Peso).order_by(Peso.fecha.desc(), Peso.id.desc()).limit(limit)
-        ).all()
-        health_records = self.session.scalars(
-            select(Salud).order_by(Salud.fecha.desc()).limit(limit)
+        checkins = self.session.scalars(
+            select(Checkin)
+            .where(Checkin.puntaje_dia.is_not(None))
+            .order_by(Checkin.fecha.desc())
+            .limit(limit)
         ).all()
         activity = [
             {
                 "date": item.fecha.isoformat(),
-                "kind": "finance",
-                "title": "Ingreso" if item.tipo == "ingreso" else "Gasto",
-                "detail": f"{number(item.monto):.2f} {item.moneda} · {item.categoria}",
+                "kind": "gym",
+                "title": item.etiqueta or "Sesión de gimnasio",
+                "detail": f"{len(item.sets)} series",
                 "order": item.id,
             }
-            for item in transactions
+            for item in gym_sessions
         ]
         activity.extend(
             {
                 "date": item.fecha.isoformat(),
-                "kind": "gym",
-                "title": "Sesión de gimnasio",
-                "detail": item.tipo or "Sin tipo",
-                "order": item.id,
-            }
-            for item in gym_sessions
-        )
-        activity.extend(
-            {
-                "date": item.fecha.isoformat(),
-                "kind": "weight",
-                "title": "Peso",
-                "detail": f"{number(item.kg):.2f} kg",
-                "order": item.id,
-            }
-            for item in weights
-        )
-        activity.extend(
-            {
-                "date": item.fecha.isoformat(),
-                "kind": "health",
-                "title": "Salud",
-                "detail": health_detail(item),
+                "kind": "checkin",
+                "title": "Check-in",
+                "detail": checkin_detail(item),
                 "order": 0,
             }
-            for item in health_records
+            for item in checkins
         )
         activity.sort(key=lambda item: (item["date"], item["order"]), reverse=True)
         for item in activity:
@@ -267,35 +165,15 @@ def month_bounds(value: date) -> tuple[date, date]:
     return start, date(start.year, start.month + 1, 1)
 
 
-def date_range(start: date, end: date):  # type: ignore[no-untyped-def]
+def date_range(start: date, end: date) -> Iterator[date]:
     current = start
     while current <= end:
         yield current
         current += timedelta(days=1)
 
 
-def average(values: list[Any]) -> float | None:
-    present = [Decimal(str(value)) for value in values if value is not None]
-    if not present:
-        return None
-    return number(sum(present, Decimal()) / len(present))
-
-
 def number(value: Decimal) -> float:
     return round(float(value), 2)
-
-
-def serialize_transaction(item: Transaccion) -> dict[str, Any]:
-    return {
-        "id": item.id,
-        "date": item.fecha.isoformat(),
-        "kind": item.tipo,
-        "amount": number(item.monto),
-        "currency": item.moneda,
-        "category": item.categoria,
-        "description": item.descripcion,
-        "payment_method": item.metodo_pago,
-    }
 
 
 def serialize_gym_session(item: GymSesion) -> dict[str, Any]:
@@ -303,7 +181,7 @@ def serialize_gym_session(item: GymSesion) -> dict[str, Any]:
     return {
         "id": item.id,
         "date": item.fecha.isoformat(),
-        "kind": item.tipo,
+        "label": item.etiqueta,
         "duration_min": item.duracion_min,
         "notes": item.notas,
         "sets": [
@@ -320,12 +198,10 @@ def serialize_gym_session(item: GymSesion) -> dict[str, Any]:
     }
 
 
-def health_detail(item: Salud) -> str:
-    values = []
+def checkin_detail(item: Checkin) -> str:
+    values = [f"Día {item.puntaje_dia}/10"]
     if item.animo is not None:
         values.append(f"Ánimo {item.animo}/10")
     if item.energia is not None:
-        values.append(f"Energía {item.energia}/10")
-    if item.sueno_horas is not None:
-        values.append(f"Sueño {number(item.sueno_horas):.2f} h")
-    return " · ".join(values) or "Registro diario"
+        values.append(f"Energía {item.energia}/5")
+    return " · ".join(values)

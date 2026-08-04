@@ -36,7 +36,7 @@ python -m src.main
 
 ## Dashboard web local
 
-La versión 1.1 incluye un dashboard Flask de solo lectura para consultar la misma
+Hay un dashboard Flask de solo lectura para consultar la misma
 base SQLite que usa el bot. Escucha únicamente en `http://127.0.0.1:5000`: no se
 expone a otros equipos de la red y no tiene endpoints de escritura.
 
@@ -56,10 +56,10 @@ breve de lectura que se cierra al terminar.
 
 El dashboard incluye:
 
-- Resumen mensual por moneda, último peso, salud reciente, gimnasio y actividad.
-- Finanzas por mes y moneda, con flujo diario, categorías y movimientos.
-- Progresión por ejercicio con peso máximo y 1RM estimado.
-- Historial de 30, 90 o 365 días para peso, sueño, ánimo, energía y agua.
+- Resumen del mes: sesiones, último check-in y puntaje promedio con y sin gimnasio.
+- Progresión por ejercicio con peso máximo y 1RM estimado, más el detalle de las
+  últimas sesiones serie por serie.
+- Historial de check-in de 30, 90 o 365 días con puntaje, ánimo y energía.
 
 Los gráficos usan Chart.js 4.5.1 desde CDN, por lo que necesitan conexión a internet
 al cargar la página. El resto del dashboard y todos los datos permanecen locales.
