@@ -73,5 +73,21 @@ def test_prose_with_interleaved_numbers_is_unrecognized() -> None:
     )
 
 
+def test_decimal_weight_with_comma_in_set() -> None:
+    assert parse_capture_message("62,5x10") == AddSets([SetInput(reps=10, peso_kg=Decimal("62.5"))])
+
+
+def test_decimal_weight_with_comma_in_mixed_sets() -> None:
+    assert parse_capture_message("62,5x10 8") == AddSets(
+        [SetInput(reps=10, peso_kg=Decimal("62.5")), SetInput(reps=8, peso_kg=None)]
+    )
+
+
+def test_exercise_with_decimal_weight_comma() -> None:
+    assert parse_capture_message("press banca 62,5") == SwitchExercise(
+        raw_name="press banca", peso_kg=Decimal("62.5")
+    )
+
+
 def test_empty_message_is_unrecognized() -> None:
     assert parse_capture_message("   ") == Unrecognized("   ")

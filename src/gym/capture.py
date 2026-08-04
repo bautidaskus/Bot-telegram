@@ -63,7 +63,7 @@ def parse_capture_message(text: str) -> CaptureCommand:
         return FinishSession()
     if lowered in UNDO_WORDS:
         return UndoLastSet()
-    tokens = lowered.replace(",", " ").split()
+    tokens = lowered.split()
     if not tokens:
         return Unrecognized(text)
 
@@ -88,10 +88,17 @@ def _parse_sets(tokens: list[str]) -> list[SetInput] | None:
     parsed: list[SetInput] = []
     for token in tokens:
         match = _SET_PATTERN.match(token)
-        if match is None:
+        if match is not None:
+            weight = _parse_decimal(match.group(1)) if match.group(1) else None
+            parsed.append(SetInput(reps=int(match.group(2)), peso_kg=weight))
+        elif "," in token:
+            parts = [p for p in token.split(",") if p]
+            if not all(part.isdigit() for part in parts):
+                return None
+            for part in parts:
+                parsed.append(SetInput(reps=int(part), peso_kg=None))
+        else:
             return None
-        weight = _parse_decimal(match.group(1)) if match.group(1) else None
-        parsed.append(SetInput(reps=int(match.group(2)), peso_kg=weight))
     return parsed
 
 
