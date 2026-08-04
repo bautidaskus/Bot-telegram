@@ -14,42 +14,30 @@ class Base(DeclarativeBase):
     """Base declarativa compartida por los modelos."""
 
 
-class Transaccion(Base):
-    """Gasto o ingreso financiero."""
+class GymSesion(Base):
+    """Entrenamiento, abierto durante la captura y cerrado al terminar."""
 
-    __tablename__ = "transaccion"
+    __tablename__ = "gym_sesion"
     __table_args__ = (
-        CheckConstraint("tipo IN ('gasto', 'ingreso')", name="ck_transaccion_tipo"),
-        CheckConstraint("monto > 0", name="ck_transaccion_monto_positivo"),
-        Index("idx_trans_fecha", "fecha"),
-        Index("idx_trans_categoria", "categoria"),
+        CheckConstraint("estado IN ('abierta', 'cerrada')", name="ck_gym_sesion_estado"),
+        Index("idx_sesion_estado", "estado"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     fecha: Mapped[date] = mapped_column(Date)
-    tipo: Mapped[str] = mapped_column(String(10))
-    monto: Mapped[Decimal] = mapped_column(Numeric(14, 2))
-    moneda: Mapped[str] = mapped_column(String(3), default="ARS")
-    categoria: Mapped[str] = mapped_column(String(50))
-    descripcion: Mapped[str | None] = mapped_column(Text)
-    metodo_pago: Mapped[str | None] = mapped_column(String(30))
-    creado_en: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp())
-    mensaje_original: Mapped[str | None] = mapped_column(Text)
-
-
-class GymSesion(Base):
-    """Entrenamiento realizado en una fecha."""
-
-    __tablename__ = "gym_sesion"
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    fecha: Mapped[date] = mapped_column(Date)
-    tipo: Mapped[str | None] = mapped_column(String(30))
+    etiqueta: Mapped[str | None] = mapped_column(String(100))
+    estado: Mapped[str] = mapped_column(String(10), default="abierta")
+    ejercicio_actual_id: Mapped[int | None] = mapped_column(ForeignKey("ejercicio.id"))
+    peso_actual: Mapped[Decimal | None] = mapped_column(Numeric(7, 2))
     duracion_min: Mapped[int | None]
     notas: Mapped[str | None] = mapped_column(Text)
+    ultima_actividad: Mapped[datetime] = mapped_column(DateTime)
+    cerrada_en: Mapped[datetime | None] = mapped_column(DateTime)
     creado_en: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp())
     mensaje_original: Mapped[str | None] = mapped_column(Text)
-    sets: Mapped[list[GymSet]] = relationship(back_populates="sesion", cascade="all, delete")
+    sets: Mapped[list[GymSet]] = relationship(
+        back_populates="sesion", cascade="all, delete", order_by="GymSet.id"
+    )
 
 
 class Ejercicio(Base):
@@ -84,41 +72,6 @@ class GymSet(Base):
     nota: Mapped[str | None] = mapped_column(Text)
     sesion: Mapped[GymSesion] = relationship(back_populates="sets")
     ejercicio: Mapped[Ejercicio] = relationship(back_populates="sets")
-
-
-class Peso(Base):
-    """Medición diaria de peso corporal."""
-
-    __tablename__ = "peso"
-    __table_args__ = (CheckConstraint("kg > 0", name="ck_peso_positivo"),)
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    fecha: Mapped[date] = mapped_column(Date, unique=True)
-    kg: Mapped[Decimal] = mapped_column(Numeric(5, 2))
-    nota: Mapped[str | None] = mapped_column(Text)
-    creado_en: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp())
-
-
-class Salud(Base):
-    """Estado de salud agregado por fecha."""
-
-    __tablename__ = "salud"
-    __table_args__ = (
-        CheckConstraint("sueno_calidad BETWEEN 1 AND 10", name="ck_salud_sueno_calidad"),
-        CheckConstraint("animo BETWEEN 1 AND 10", name="ck_salud_animo"),
-        CheckConstraint("energia BETWEEN 1 AND 10", name="ck_salud_energia"),
-    )
-
-    fecha: Mapped[date] = mapped_column(Date, primary_key=True)
-    sueno_horas: Mapped[Decimal | None] = mapped_column(Numeric(4, 2))
-    sueno_calidad: Mapped[int | None]
-    animo: Mapped[int | None]
-    energia: Mapped[int | None]
-    agua_l: Mapped[Decimal | None] = mapped_column(Numeric(4, 2))
-    nota: Mapped[str | None] = mapped_column(Text)
-    actualizado_en: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.current_timestamp(), onupdate=func.current_timestamp()
-    )
 
 
 class Pendiente(Base):
@@ -163,3 +116,26 @@ class ErrorLog(Base):
     mensaje: Mapped[str | None] = mapped_column(Text)
     contexto_json: Mapped[str | None] = mapped_column(Text)
     creado_en: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp())
+
+
+class Checkin(Base):
+    """Registro nocturno del día, respondido con taps."""
+
+    __tablename__ = "checkin"
+    __table_args__ = (
+        CheckConstraint("puntaje_dia BETWEEN 1 AND 10", name="ck_checkin_puntaje"),
+        CheckConstraint("animo BETWEEN 1 AND 10", name="ck_checkin_animo"),
+        CheckConstraint("energia BETWEEN 1 AND 5", name="ck_checkin_energia"),
+    )
+
+    fecha: Mapped[date] = mapped_column(Date, primary_key=True)
+    puntaje_dia: Mapped[int | None]
+    animo: Mapped[int | None]
+    energia: Mapped[int | None]
+    hora_acostado: Mapped[str | None] = mapped_column(String(11))
+    mejor_del_dia: Mapped[str | None] = mapped_column(Text)
+    estado: Mapped[str] = mapped_column(String(20), default="pendiente")
+    creado_en: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp())
+    actualizado_en: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), onupdate=func.current_timestamp()
+    )
