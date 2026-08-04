@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
+from decimal import Decimal
 from typing import Protocol
 
 from sqlalchemy.orm import Session
@@ -19,6 +20,12 @@ from src.gym.capture import (
     parse_capture_message,
 )
 from src.gym.matcher import CatalogEntry, match_exercise
+
+
+def _format_weight(peso_kg: Decimal) -> str:
+    """Muestra el peso sin ceros de relleno: 60.00 -> 60, 62.50 -> 62.5."""
+
+    return f"{peso_kg.normalize():f}"
 
 
 class CanonicalizerProtocol(Protocol):
@@ -47,6 +54,9 @@ class GymSessionService:
 
         open_session = self.repository.get_open_session()
         if open_session is None:
+            command = parse_capture_message(text)
+            if isinstance(command, FinishSession | UndoLastSet):
+                return "No hay ninguna sesión abierta."
             etiqueta = text.strip()
             self.repository.open_session(fecha=self.now().date(), etiqueta=etiqueta, now=self.now())
             return f"Sesión abierta: {etiqueta}"
@@ -86,14 +96,25 @@ class GymSessionService:
         if match is None:
             canonical, grupo = self.canonicalizer.canonicalize(command.raw_name)
             exercise = self.repository.get_or_create_exercise(canonical, grupo)
-            self.repository.set_current_exercise(sesion_id, exercise.id, command.peso_kg)
-            suffix = f" @ {command.peso_kg}kg" if command.peso_kg is not None else ""
+            peso = self._sticky_weight(sesion_id, exercise.id, command.peso_kg)
+            self.repository.set_current_exercise(sesion_id, exercise.id, peso)
+            suffix = f" @ {_format_weight(peso)}kg" if peso is not None else ""
             return f"nuevo ejercicio: {canonical}{suffix}"
         if match.learned_alias is not None:
             self.repository.add_alias(match.exercise_id, match.learned_alias)
-        self.repository.set_current_exercise(sesion_id, match.exercise_id, command.peso_kg)
-        suffix = f" @ {command.peso_kg}kg" if command.peso_kg is not None else " (sin peso)"
+        peso = self._sticky_weight(sesion_id, match.exercise_id, command.peso_kg)
+        self.repository.set_current_exercise(sesion_id, match.exercise_id, peso)
+        suffix = f" @ {_format_weight(peso)}kg" if peso is not None else " (sin peso)"
         return f"→ {match.canonical}{suffix}"
+
+    def _sticky_weight(
+        self, sesion_id: int, ejercicio_id: int, peso_kg: Decimal | None
+    ) -> Decimal | None:
+        """Peso explícito, o el último usado con este ejercicio en la sesión."""
+
+        if peso_kg is not None:
+            return peso_kg
+        return self.repository.last_weight_for(sesion_id, ejercicio_id)
 
     def _add_sets(self, open_session: GymSesion, command: AddSets) -> str:
         exercise_id = open_session.ejercicio_actual_id
@@ -109,7 +130,9 @@ class GymSessionService:
                 peso_kg=weight,
                 now=self.now(),
             )
-            rendered.append(f"{weight:g}x{item.reps}" if weight is not None else str(item.reps))
+            rendered.append(
+                f"{_format_weight(weight)}x{item.reps}" if weight is not None else str(item.reps)
+            )
         name = next(
             item.nombre_canonico
             for item in self.repository.list_exercises()

@@ -128,6 +128,101 @@ def test_typo_matches_known_exercise_without_llm(
         assert canonicalizer.calls == ["dominadas"]
 
 
+def test_switching_back_to_exercise_resumes_its_last_weight(
+    session_factory: sessionmaker[Session],
+) -> None:
+    with session_factory() as session:
+        service = _service(session)
+        service.handle("espalda biceps")
+        service.handle("remo t 60")
+        service.handle("10")
+        service.handle("dominadas")
+        service.handle("8")
+        service.handle("remo t")
+        reply = service.handle("9")
+        session.commit()
+
+        stored = GymRepository(session).get_open_session()
+        assert [item.peso_kg for item in stored.sets] == [60, None, 60]
+        assert "60x9" in reply
+
+
+def test_weight_is_rendered_without_padding_zeros(
+    session_factory: sessionmaker[Session],
+) -> None:
+    with session_factory() as session:
+        service = _service(session)
+        service.handle("espalda biceps")
+        service.handle("remo t 62,5")
+        service.handle("10")
+        service.handle("dominadas")
+        service.handle("8")
+        switch_reply = service.handle("remo t")
+        sets_reply = service.handle("9")
+        session.commit()
+
+        assert "@ 62.5kg" in switch_reply
+        assert "62.5x9" in sets_reply
+
+
+def test_exercise_without_previous_sets_stays_without_weight(
+    session_factory: sessionmaker[Session],
+) -> None:
+    with session_factory() as session:
+        service = _service(session)
+        service.handle("espalda biceps")
+        service.handle("remo t 60")
+        service.handle("10")
+        service.handle("dominadas")
+        reply = service.handle("8")
+        session.commit()
+
+        stored = GymRepository(session).get_open_session()
+        assert stored.sets[-1].peso_kg is None
+        assert reply.strip().endswith("8")
+
+
+def test_explicit_weight_still_wins_over_sticky_history(
+    session_factory: sessionmaker[Session],
+) -> None:
+    with session_factory() as session:
+        service = _service(session)
+        service.handle("espalda biceps")
+        service.handle("remo t 60")
+        service.handle("10")
+        service.handle("remo t 70")
+        reply = service.handle("5")
+        session.commit()
+
+        stored = GymRepository(session).get_open_session()
+        assert [item.peso_kg for item in stored.sets] == [60, 70]
+        assert "70x5" in reply
+
+
+def test_finish_without_open_session_does_not_create_one(
+    session_factory: sessionmaker[Session],
+) -> None:
+    with session_factory() as session:
+        reply = _service(session).handle("fin")
+        session.commit()
+
+        assert "no hay" in reply.lower()
+        assert GymRepository(session).get_open_session() is None
+        assert GymRepository(session).list_sessions(10) == []
+
+
+def test_undo_without_open_session_does_not_create_one(
+    session_factory: sessionmaker[Session],
+) -> None:
+    with session_factory() as session:
+        reply = _service(session).handle("deshacer")
+        session.commit()
+
+        assert "no hay" in reply.lower()
+        assert GymRepository(session).get_open_session() is None
+        assert GymRepository(session).list_sessions(10) == []
+
+
 def test_close_stale_closes_only_inactive(session_factory: sessionmaker[Session]) -> None:
     with session_factory() as session:
         service = GymSessionService(

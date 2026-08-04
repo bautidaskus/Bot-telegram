@@ -64,6 +64,15 @@ class GymRepository:
         self.session.flush()
         return gym_set
 
+    def last_weight_for(self, sesion_id: int, ejercicio_id: int) -> Decimal | None:
+        gym_set = self.session.scalar(
+            select(GymSet)
+            .where(GymSet.sesion_id == sesion_id, GymSet.ejercicio_id == ejercicio_id)
+            .order_by(GymSet.id.desc())
+            .limit(1)
+        )
+        return gym_set.peso_kg if gym_set is not None else None
+
     def undo_last_set(self, sesion_id: int) -> GymSet | None:
         gym_set = self.session.scalar(
             select(GymSet).where(GymSet.sesion_id == sesion_id).order_by(GymSet.id.desc()).limit(1)

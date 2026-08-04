@@ -53,6 +53,26 @@ def test_append_and_undo_sets(session_factory: sessionmaker[Session]) -> None:
         assert len(remaining) == 1
 
 
+def test_last_weight_for_returns_most_recent_set(session_factory: sessionmaker[Session]) -> None:
+    with session_factory() as session:
+        repository = GymRepository(session)
+        gym_session = repository.open_session(fecha=NOW.date(), etiqueta="pull", now=NOW)
+        exercise = repository.get_or_create_exercise("remo_t")
+        session.commit()
+
+        assert repository.last_weight_for(gym_session.id, exercise.id) is None
+
+        repository.append_set(
+            sesion_id=gym_session.id, ejercicio_id=exercise.id, reps=10, peso_kg=60, now=NOW
+        )
+        repository.append_set(
+            sesion_id=gym_session.id, ejercicio_id=exercise.id, reps=8, peso_kg=65, now=NOW
+        )
+        session.commit()
+
+        assert repository.last_weight_for(gym_session.id, exercise.id) == 65
+
+
 def test_undo_on_empty_session_returns_none(session_factory: sessionmaker[Session]) -> None:
     with session_factory() as session:
         repository = GymRepository(session)
