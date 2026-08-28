@@ -19,7 +19,7 @@ guarda al instante: no hay preview ni confirmación en el medio.
 
 ```powershell
 git clone https://github.com/bautidaskus/Bot-telegram.git
-cd "Bot registro cosas"
+cd Bot-telegram
 
 python -m venv .venv
 .venv\Scripts\activate
