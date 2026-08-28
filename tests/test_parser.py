@@ -10,7 +10,9 @@ import httpx
 import pytest
 from openai import APIConnectionError, OpenAI
 
-from src.ai.parser import LLMParser, ParserError, ParserUnavailableError
+from src.ai.parser import LLMCanonicalizer, LLMParser, ParserError, ParserUnavailableError
+
+CANONICALIZER_PROMPT = Path("prompts/canonicalizer.txt")
 
 
 class FakeCompletions:
@@ -30,41 +32,25 @@ def build_client(responses: list[str]) -> tuple[SimpleNamespace, FakeCompletions
     return client, completions
 
 
-def valid_expense_response() -> str:
+def valid_gym_response() -> str:
+    return response_for_exercises(["press_banca"])
+
+
+def response_for_exercises(names: list[str]) -> str:
     return json.dumps(
         {
             "operaciones": [
                 {
-                    "tipo": "gasto",
-                    "confianza": 0.95,
+                    "tipo": "gym",
+                    "confianza": 0.9,
                     "fecha": "hoy",
-                    "datos": {"monto": 1500, "categoria": "alimentos"},
-                    "explicacion": "Compra de alimentos",
+                    "datos": {
+                        "ejercicios": [
+                            {"nombre": name, "sets": [{"peso_kg": 80, "reps": 8}]} for name in names
+                        ]
+                    },
+                    "explicacion": "Series registradas",
                 }
-            ]
-        }
-    )
-
-
-def response_for_types(operation_types: list[str]) -> str:
-    data_by_type: dict[str, dict[str, Any]] = {
-        "gasto": {"monto": 1500, "categoria": "otros"},
-        "ingreso": {"monto": 1000, "categoria": "otros"},
-        "gym": {"ejercicios": [{"nombre": "ejercicio", "sets": [{"reps": 1}]}]},
-        "peso": {"kg": 78},
-        "salud": {"animo": 5},
-        "ambiguo": {"sugerencias": ["gasto", "ingreso"]},
-    }
-    return json.dumps(
-        {
-            "operaciones": [
-                {
-                    "tipo": operation_type,
-                    "confianza": 0.4 if operation_type == "ambiguo" else 0.9,
-                    "fecha": "hoy",
-                    "datos": data_by_type[operation_type],
-                }
-                for operation_type in operation_types
             ]
         }
     )
@@ -73,12 +59,12 @@ def response_for_types(operation_types: list[str]) -> str:
 def test_parser_uses_json_mode_and_injects_exercise_catalog(tmp_path: Path) -> None:
     prompt_path = tmp_path / "parser.txt"
     prompt_path.write_text("Catálogo:\n{exercise_catalog}", encoding="utf-8")
-    client, completions = build_client([valid_expense_response()])
+    client, completions = build_client([valid_gym_response()])
     parser = LLMParser(client=client, model="test-model", prompt_path=prompt_path)
 
-    response = parser.parse("Gasté 1500 en el súper", ["press_banca", "sentadilla"])
+    response = parser.parse("Bench 80 por 8", ["press_banca", "sentadilla"])
 
-    assert response.operaciones[0].tipo == "gasto"
+    assert response.operaciones[0].tipo == "gym"
     call = completions.calls[0]
     assert call["response_format"] == {"type": "json_object"}
     assert call["temperature"] == 0
@@ -93,22 +79,22 @@ def test_parser_retries_with_validation_error_context(tmp_path: Path) -> None:
         {
             "operaciones": [
                 {
-                    "tipo": "peso",
+                    "tipo": "gym",
                     "confianza": 0.9,
                     "fecha": "hoy",
-                    "datos": {"kg": 0},
+                    "datos": {"ejercicios": [{"nombre": "press_banca", "sets": [{"reps": 0}]}]},
                 }
             ]
         }
     )
-    client, completions = build_client([invalid, valid_expense_response()])
+    client, completions = build_client([invalid, valid_gym_response()])
     parser = LLMParser(client=client, model="test-model", prompt_path=prompt_path)
 
-    response = parser.parse("Gasté 1500", [])
+    response = parser.parse("Bench 80 por 8", [])
 
-    assert response.operaciones[0].tipo == "gasto"
+    assert response.operaciones[0].tipo == "gym"
     assert len(completions.calls) == 2
-    assert "kg" in completions.calls[1]["messages"][-1]["content"]
+    assert "reps" in completions.calls[1]["messages"][-1]["content"]
 
 
 def test_parser_raises_after_three_invalid_responses(tmp_path: Path) -> None:
@@ -158,11 +144,11 @@ def build_flaky_parser(
 
 
 def test_parser_recovers_from_transient_errors_with_exponential_backoff(tmp_path: Path) -> None:
-    parser, sleeps, completions = build_flaky_parser(tmp_path, 2, valid_expense_response())
+    parser, sleeps, completions = build_flaky_parser(tmp_path, 2, valid_gym_response())
 
-    response = parser.parse("Gasté 1500", [])
+    response = parser.parse("Bench 80 por 8", [])
 
-    assert response.operaciones[0].tipo == "gasto"
+    assert response.operaciones[0].tipo == "gym"
     assert completions.attempts == 3
     assert sleeps == [2.0, 4.0]
 
@@ -171,7 +157,7 @@ def test_parser_raises_unavailable_when_groq_stays_down(tmp_path: Path) -> None:
     parser, sleeps, completions = build_flaky_parser(tmp_path, 5, None)
 
     with pytest.raises(ParserUnavailableError, match="3 intentos"):
-        parser.parse("Gasté 1500", [])
+        parser.parse("Bench 80 por 8", [])
 
     assert completions.attempts == 3
     assert sleeps == [2.0, 4.0]
@@ -182,30 +168,80 @@ def test_fixture_contains_at_least_twenty_real_messages() -> None:
     messages = json.loads(fixture_path.read_text(encoding="utf-8"))
 
     assert len(messages) >= 20
-    assert {operation for item in messages for operation in item["tipos"]} == {
-        "gasto",
-        "ingreso",
-        "gym",
-        "peso",
-        "salud",
-        "ambiguo",
-    }
+    assert all(item["ejercicios"] for item in messages)
 
 
 def test_parser_validates_every_fixture_with_mocked_responses(tmp_path: Path) -> None:
     messages = json.loads(Path("tests/fixtures/mensajes.json").read_text(encoding="utf-8"))
     prompt_path = tmp_path / "parser.txt"
     prompt_path.write_text("Catálogo: {exercise_catalog}", encoding="utf-8")
-    client, completions = build_client([response_for_types(item["tipos"]) for item in messages])
+    client, completions = build_client(
+        [response_for_exercises(item["ejercicios"]) for item in messages]
+    )
     parser = LLMParser(client=client, model="test-model", prompt_path=prompt_path)
 
-    parsed_types = [
-        [operation.tipo for operation in parser.parse(item["texto"], []).operaciones]
+    parsed_names = [
+        [
+            exercise.nombre
+            for operation in parser.parse(item["texto"], []).operaciones
+            for exercise in operation.datos.ejercicios
+        ]
         for item in messages
     ]
 
-    assert parsed_types == [item["tipos"] for item in messages]
+    assert parsed_names == [item["ejercicios"] for item in messages]
     assert len(completions.calls) == len(messages)
+
+
+def test_canonicalizer_returns_snake_case_and_group() -> None:
+    client, _ = build_client(['{"nombre": "remo_t", "grupo_muscular": "dorsal"}'])
+    canonicalizer = LLMCanonicalizer(
+        client=client, model="test-model", prompt_path=CANONICALIZER_PROMPT
+    )
+
+    assert canonicalizer.canonicalize("remo t") == ("remo_t", "dorsal")
+
+
+def test_canonicalizer_injects_known_catalog() -> None:
+    client, completions = build_client(['{"nombre": "remo_t", "grupo_muscular": null}'])
+    canonicalizer = LLMCanonicalizer(
+        client=client,
+        model="test-model",
+        prompt_path=CANONICALIZER_PROMPT,
+        catalog=["dominadas", "press_banca"],
+    )
+
+    canonicalizer.canonicalize("remo t")
+
+    assert "dominadas, press_banca" in completions.calls[0]["messages"][0]["content"]
+
+
+def test_canonicalizer_falls_back_to_slug_on_invalid_output() -> None:
+    client, _ = build_client(["no soy json"])
+    canonicalizer = LLMCanonicalizer(
+        client=client, model="test-model", prompt_path=CANONICALIZER_PROMPT
+    )
+
+    assert canonicalizer.canonicalize("Remo T") == ("remo_t", None)
+
+
+def test_canonicalizer_rejects_non_canonical_name() -> None:
+    client, _ = build_client(['{"nombre": "Remo T!", "grupo_muscular": "dorsal"}'])
+    canonicalizer = LLMCanonicalizer(
+        client=client, model="test-model", prompt_path=CANONICALIZER_PROMPT
+    )
+
+    assert canonicalizer.canonicalize("remo t") == ("remo_t", None)
+
+
+def test_canonicalizer_falls_back_when_groq_is_down() -> None:
+    completions = FlakyCompletions(failures=99, response=None)
+    client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
+    canonicalizer = LLMCanonicalizer(
+        client=client, model="test-model", prompt_path=CANONICALIZER_PROMPT
+    )
+
+    assert canonicalizer.canonicalize("remo t") == ("remo_t", None)
 
 
 @pytest.mark.live
@@ -219,6 +255,6 @@ def test_live_groq_parser_smoke() -> None:
         prompt_path=Path("prompts/parser.txt"),
     )
 
-    response = parser.parse("Gasté 1500 pesos en el supermercado", [])
+    response = parser.parse("Hice press banca 80 kilos por 8", [])
 
-    assert response.operaciones[0].tipo == "gasto"
+    assert response.operaciones[0].tipo == "gym"

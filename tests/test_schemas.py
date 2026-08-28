@@ -13,75 +13,32 @@ def test_parser_response_validates_multiple_operations() -> None:
         {
             "operaciones": [
                 {
-                    "tipo": "gasto",
+                    "tipo": "gym",
                     "confianza": 0.95,
                     "fecha": "ayer",
                     "datos": {
-                        "monto": 1500,
-                        "categoria": "alimentos",
-                        "metodo_pago": "debito",
+                        "ejercicios": [
+                            {"nombre": "press_banca", "sets": [{"peso_kg": 80, "reps": 8}]}
+                        ]
                     },
-                    "explicacion": "Compra en supermercado",
+                    "explicacion": "Press de banca",
                 },
                 {
-                    "tipo": "peso",
+                    "tipo": "gym",
                     "confianza": 0.99,
                     "fecha": "hoy",
-                    "datos": {"kg": 78.4},
-                    "explicacion": "Medición corporal",
+                    "datos": {
+                        "duracion_min": 45,
+                        "ejercicios": [{"nombre": "dominadas", "sets": [{"reps": 7}, {"reps": 6}]}],
+                    },
                 },
             ]
         }
     )
 
     assert len(response.operaciones) == 2
-    assert response.operaciones[0].datos.monto == Decimal("1500")
-    assert response.operaciones[1].datos.kg == Decimal("78.4")
-
-
-@pytest.mark.parametrize(
-    "operation",
-    [
-        {
-            "tipo": "ingreso",
-            "confianza": 0.95,
-            "fecha": "hoy",
-            "datos": {"monto": 250000, "categoria": "sueldo"},
-        },
-        {
-            "tipo": "gym",
-            "confianza": 0.95,
-            "fecha": "hoy",
-            "datos": {
-                "tipo_sesion": "push",
-                "ejercicios": [
-                    {
-                        "nombre": "press_banca",
-                        "sets": [{"peso_kg": 80, "reps": 8, "rpe": 8.5}],
-                    }
-                ],
-            },
-        },
-        {
-            "tipo": "salud",
-            "confianza": 0.95,
-            "fecha": "hoy",
-            "datos": {"sueno_horas": 7.5, "animo": 8, "agua_l": 2},
-        },
-        {
-            "tipo": "ambiguo",
-            "confianza": 0.4,
-            "fecha": "hoy",
-            "datos": {"sugerencias": ["gasto", "ingreso"]},
-        },
-    ],
-)
-def test_parser_response_accepts_each_remaining_operation_type(
-    operation: dict[str, object],
-) -> None:
-    response = ParserResponse.model_validate({"operaciones": [operation]})
-
-    assert response.operaciones[0].tipo == operation["tipo"]
+    assert response.operaciones[0].datos.ejercicios[0].sets[0].peso_kg == Decimal("80")
+    assert len(response.operaciones[1].datos.ejercicios[0].sets) == 2
 
 
 @pytest.mark.parametrize(
@@ -89,39 +46,30 @@ def test_parser_response_accepts_each_remaining_operation_type(
     [
         (
             {
-                "tipo": "gasto",
+                "tipo": "gym",
                 "confianza": 0.9,
                 "fecha": "hoy",
-                "datos": {"monto": 0, "categoria": "alimentos"},
+                "datos": {"ejercicios": [{"nombre": "press_banca", "sets": [{"reps": 0}]}]},
             },
-            "monto",
+            "reps",
         ),
         (
             {
-                "tipo": "ingreso",
+                "tipo": "gym",
                 "confianza": 0.9,
                 "fecha": "hoy",
-                "datos": {"monto": 1000, "categoria": "alimentos"},
+                "datos": {"ejercicios": [{"nombre": "Press Banca", "sets": [{"reps": 8}]}]},
             },
-            "categoria",
+            "nombre",
         ),
         (
             {
-                "tipo": "peso",
+                "tipo": "gym",
                 "confianza": 0.9,
                 "fecha": "hoy",
-                "datos": {"kg": 0},
+                "datos": {"ejercicios": [{"nombre": "press_banca", "sets": []}]},
             },
-            "kg",
-        ),
-        (
-            {
-                "tipo": "salud",
-                "confianza": 0.9,
-                "fecha": "hoy",
-                "datos": {"animo": 11},
-            },
-            "animo",
+            "sets",
         ),
         (
             {
@@ -129,12 +77,19 @@ def test_parser_response_accepts_each_remaining_operation_type(
                 "confianza": 0.9,
                 "fecha": "hoy",
                 "datos": {
-                    "ejercicios": [
-                        {"nombre": "press_banca", "sets": [{"reps": 0}]},
-                    ]
+                    "ejercicios": [{"nombre": "press_banca", "sets": [{"reps": 8, "rpe": 12}]}]
                 },
             },
-            "reps",
+            "rpe",
+        ),
+        (
+            {
+                "tipo": "gym",
+                "confianza": 1.5,
+                "fecha": "hoy",
+                "datos": {"ejercicios": [{"nombre": "press_banca", "sets": [{"reps": 8}]}]},
+            },
+            "confianza",
         ),
     ],
 )
@@ -147,16 +102,32 @@ def test_parser_response_rejects_invalid_domain_values(
     assert invalid_field in str(error.value)
 
 
-def test_ambiguous_operation_requires_suggestions() -> None:
-    with pytest.raises(ValidationError, match="sugerencias"):
+def test_gym_operation_requires_exercises() -> None:
+    with pytest.raises(ValidationError, match="ejercicios"):
         ParserResponse.model_validate(
             {
                 "operaciones": [
                     {
-                        "tipo": "ambiguo",
-                        "confianza": 0.4,
+                        "tipo": "gym",
+                        "confianza": 0.9,
                         "fecha": "hoy",
-                        "datos": {"sugerencias": []},
+                        "datos": {"ejercicios": []},
+                    }
+                ]
+            }
+        )
+
+
+def test_parser_response_rejects_non_gym_operations() -> None:
+    with pytest.raises(ValidationError, match="tipo"):
+        ParserResponse.model_validate(
+            {
+                "operaciones": [
+                    {
+                        "tipo": "gasto",
+                        "confianza": 0.9,
+                        "fecha": "hoy",
+                        "datos": {"monto": 1500, "categoria": "alimentos"},
                     }
                 ]
             }

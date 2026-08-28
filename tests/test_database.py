@@ -9,28 +9,24 @@ from sqlalchemy.orm import Session
 
 from src.db.models import (
     Base,
+    Checkin,
     Ejercicio,
     ErrorLog,
     GymSesion,
     GymSet,
     Pendiente,
-    Peso,
     Preview,
-    Salud,
-    Transaccion,
 )
 from src.db.session import create_sqlite_engine
 
 EXPECTED_TABLES = {
+    "checkin",
     "ejercicio",
     "error_log",
     "gym_sesion",
     "gym_set",
     "pendiente",
-    "peso",
     "preview",
-    "salud",
-    "transaccion",
 }
 
 
@@ -54,17 +50,11 @@ def test_models_create_all_tables_and_persist_one_row_each(tmp_path: Path) -> No
     session_date = date(2026, 6, 8)
     created_at = datetime(2026, 6, 8, 12, 0)
     with Session(engine) as session:
-        transaction = Transaccion(
-            fecha=session_date,
-            tipo="gasto",
-            monto=Decimal("1500.00"),
-            moneda="ARS",
-            categoria="alimentos",
+        gym_session = GymSesion(
+            fecha=session_date, etiqueta="push", estado="abierta", ultima_actividad=created_at
         )
-        gym_session = GymSesion(fecha=session_date, tipo="push")
         exercise = Ejercicio(nombre_canonico="press_banca")
-        weight = Peso(fecha=session_date, kg=Decimal("78.40"))
-        health = Salud(fecha=session_date, sueno_horas=Decimal("7.50"), animo=8)
+        checkin = Checkin(fecha=session_date, puntaje_dia=8, animo=8, energia=4)
         pending = Pendiente(chat_id=123456, mensaje_original="anoté 20")
         preview = Preview(
             id="preview-1",
@@ -75,9 +65,7 @@ def test_models_create_all_tables_and_persist_one_row_each(tmp_path: Path) -> No
             expira_en=created_at + timedelta(minutes=10),
         )
         error = ErrorLog(tipo="test", mensaje="error controlado")
-        session.add_all(
-            [transaction, gym_session, exercise, weight, health, pending, preview, error]
-        )
+        session.add_all([gym_session, exercise, checkin, pending, preview, error])
         session.flush()
         gym_set = GymSet(
             sesion_id=gym_session.id,
@@ -91,11 +79,9 @@ def test_models_create_all_tables_and_persist_one_row_each(tmp_path: Path) -> No
 
     assert set(inspect(engine).get_table_names()) == EXPECTED_TABLES
     with Session(engine) as session:
-        assert session.query(Transaccion).one().monto == Decimal("1500.00")
         assert session.query(GymSet).one().sesion_id == session.query(GymSesion).one().id
         assert session.query(Ejercicio).one().nombre_canonico == "press_banca"
-        assert session.query(Peso).one().kg == Decimal("78.40")
-        assert session.query(Salud).one().animo == 8
+        assert session.query(Checkin).one().puntaje_dia == 8
         assert session.query(Pendiente).one().intentos == 0
         assert session.query(Preview).one().estado == "pendiente"
         assert session.query(ErrorLog).one().tipo == "test"

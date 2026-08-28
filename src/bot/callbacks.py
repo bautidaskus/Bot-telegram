@@ -16,6 +16,7 @@ ACTION_CODES: dict[PreviewAction, str] = {
 }
 CODE_ACTIONS = {code: action for action, code in ACTION_CODES.items()}
 VALID_HINTS = {"gasto", "ingreso", "gym", "peso", "salud"}
+CHECKIN_FIELDS = {"puntaje_dia", "animo", "energia", "hora_acostado", "mejor_del_dia"}
 
 
 class CallbackDataError(ValueError):
@@ -38,6 +39,22 @@ class ClarificationCallback:
     hint: ClarificationHint
 
 
+@dataclass(frozen=True)
+class CheckinCallback:
+    """Respuesta elegida en un paso del check-in."""
+
+    campo: str
+    valor: str
+
+
+def build_checkin_callback(campo: str, valor: str) -> str:
+    """Construye callback_data para una respuesta del check-in."""
+
+    if campo not in CHECKIN_FIELDS:
+        raise CallbackDataError("Campo de check-in inválido")
+    return _check_size(f"k:{campo}:{valor}")
+
+
 def build_preview_callback(action: PreviewAction, preview_id: str) -> str:
     """Construye callback_data para una acción de preview."""
 
@@ -57,11 +74,17 @@ def build_clarification_callback(pending_id: int, hint: ClarificationHint) -> st
     return _check_size(f"a:{pending_id}:{hint}")
 
 
-def parse_callback(callback_data: str) -> PreviewCallback | ClarificationCallback:
+def parse_callback(
+    callback_data: str,
+) -> PreviewCallback | ClarificationCallback | CheckinCallback:
     """Interpreta callback_data generado por este módulo."""
 
     parts = callback_data.split(":")
     try:
+        if len(parts) == 3 and parts[0] == "k":
+            if parts[1] not in CHECKIN_FIELDS:
+                raise ValueError
+            return CheckinCallback(campo=parts[1], valor=parts[2])
         if len(parts) == 3 and parts[0] == "p":
             action = CODE_ACTIONS[parts[1]]
             preview_id = str(UUID(parts[2]))

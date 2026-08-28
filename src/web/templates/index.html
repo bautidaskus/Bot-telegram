@@ -6,44 +6,29 @@
     <h1>Resumen</h1>
   </section>
 
-  {% if finances %}
-    <section class="currency-groups" aria-label="Finanzas del mes">
-      {% for item in finances %}
-        <article class="currency-group">
-          <div class="section-label">{{ item.currency }}</div>
-          <div class="metric-grid metric-grid--three">
-            <div class="metric-card"><span>Ingresos</span><strong>{{ item.income|number }}</strong></div>
-            <div class="metric-card"><span>Gastos</span><strong>{{ item.expenses|number }}</strong></div>
-            <div class="metric-card metric-card--accent"><span>Balance</span><strong>{{ item.balance|number }}</strong></div>
-          </div>
-        </article>
-      {% endfor %}
-    </section>
-  {% endif %}
-
   <section class="snapshot-grid">
-    <article class="snapshot">
-      <span class="section-label">Último peso</span>
-      {% if latest_weight %}
-        <strong>{{ latest_weight.kg|number }} kg</strong>
-        <p>Media 7 días: {{ latest_weight.average_7d|number }} kg</p>
-      {% else %}
-        <strong>Sin datos</strong>
-      {% endif %}
-    </article>
-    <article class="snapshot">
-      <span class="section-label">Salud · 7 días</span>
-      {% if health.values()|select('ne', none)|list %}
-        <strong>{{ health.sleep_hours|number }} h</strong>
-        <p>Ánimo {{ health.mood|number }} · Energía {{ health.energy|number }}</p>
-      {% else %}
-        <strong>Sin datos</strong>
-      {% endif %}
-    </article>
     <article class="snapshot">
       <span class="section-label">Gimnasio · mes</span>
       <strong>{{ gym.count }} {{ "sesión" if gym.count == 1 else "sesiones" }}</strong>
       <p>Entrenamientos registrados</p>
+    </article>
+    <article class="snapshot">
+      <span class="section-label">Último check-in</span>
+      {% if latest_checkin %}
+        <strong>{{ latest_checkin.puntaje }}/10</strong>
+        <p>{{ latest_checkin.fecha }} · ánimo {{ latest_checkin.animo if latest_checkin.animo is not none else "—" }}</p>
+      {% else %}
+        <strong>Sin datos</strong>
+      {% endif %}
+    </article>
+    <article class="snapshot">
+      <span class="section-label">Día con vs. sin gym</span>
+      {% if comparison.con_gym is not none or comparison.sin_gym is not none %}
+        <strong>{{ comparison.con_gym|number }} vs. {{ comparison.sin_gym|number }}</strong>
+        <p>Puntaje promedio, últimos 30 días</p>
+      {% else %}
+        <strong>Sin datos</strong>
+      {% endif %}
     </article>
   </section>
 

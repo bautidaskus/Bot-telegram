@@ -1,21 +1,17 @@
 from __future__ import annotations
 
-from datetime import date
-from decimal import Decimal
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from src.db.models import Base, GymSet, Transaccion
-from src.db.repositories import (
-    FinanceRepository,
-    GymRepository,
-    HealthRepository,
-    WeightAlreadyExistsError,
-    WeightRepository,
-)
+from src.db.models import Base, GymSet
+from src.db.repositories import CheckinRepository, GymRepository
 from src.db.session import create_sqlite_engine
+
+NOW = datetime(2026, 8, 4, 19, 0)
 
 
 @pytest.fixture
@@ -25,123 +21,108 @@ def session_factory(tmp_path: Path) -> sessionmaker[Session]:
     return sessionmaker(engine, expire_on_commit=False)
 
 
-def test_finance_repository_crud(session_factory: sessionmaker[Session]) -> None:
+def test_open_session_is_unique_and_findable(session_factory: sessionmaker[Session]) -> None:
     with session_factory() as session:
-        repository = FinanceRepository(session)
-        created = repository.create(
-            fecha=date(2026, 6, 8),
-            tipo="gasto",
-            monto=Decimal("1500.00"),
-            categoria="alimentos",
-            descripcion="supermercado",
+        repository = GymRepository(session)
+        opened = repository.open_session(fecha=NOW.date(), etiqueta="espalda biceps", now=NOW)
+        session.commit()
+
+        assert opened.estado == "abierta"
+        assert repository.get_open_session() is opened
+
+
+def test_append_and_undo_sets(session_factory: sessionmaker[Session]) -> None:
+    with session_factory() as session:
+        repository = GymRepository(session)
+        gym_session = repository.open_session(fecha=NOW.date(), etiqueta="pull", now=NOW)
+        exercise = repository.get_or_create_exercise("dominadas")
+        session.commit()
+
+        first = repository.append_set(
+            sesion_id=gym_session.id, ejercicio_id=exercise.id, reps=7, peso_kg=None, now=NOW
+        )
+        second = repository.append_set(
+            sesion_id=gym_session.id, ejercicio_id=exercise.id, reps=6, peso_kg=None, now=NOW
         )
         session.commit()
 
-        assert repository.get(created.id) is created
-        assert repository.list_recent(1) == [created]
-
-        updated = repository.update(created.id, monto=Decimal("1800.00"))
+        assert (first.serie_num, second.serie_num) == (1, 2)
+        assert repository.undo_last_set(gym_session.id) is not None
         session.commit()
-        assert updated.monto == Decimal("1800.00")
-
-        repository.delete(created.id)
-        session.commit()
-        assert repository.get(created.id) is None
+        remaining = session.scalars(select(GymSet).where(GymSet.sesion_id == gym_session.id)).all()
+        assert len(remaining) == 1
 
 
-def test_weight_requires_explicit_replace(session_factory: sessionmaker[Session]) -> None:
+def test_last_weight_for_returns_most_recent_set(session_factory: sessionmaker[Session]) -> None:
     with session_factory() as session:
-        repository = WeightRepository(session)
-        original = repository.save(date(2026, 6, 8), Decimal("78.40"))
+        repository = GymRepository(session)
+        gym_session = repository.open_session(fecha=NOW.date(), etiqueta="pull", now=NOW)
+        exercise = repository.get_or_create_exercise("remo_t")
         session.commit()
 
-        with pytest.raises(WeightAlreadyExistsError):
-            repository.save(date(2026, 6, 8), Decimal("78.10"))
-        session.rollback()
+        assert repository.last_weight_for(gym_session.id, exercise.id) is None
 
-        replaced = repository.save(date(2026, 6, 8), Decimal("78.10"), replace=True)
+        repository.append_set(
+            sesion_id=gym_session.id, ejercicio_id=exercise.id, reps=10, peso_kg=60, now=NOW
+        )
+        repository.append_set(
+            sesion_id=gym_session.id, ejercicio_id=exercise.id, reps=8, peso_kg=65, now=NOW
+        )
         session.commit()
 
-        assert replaced.id == original.id
-        assert replaced.kg == Decimal("78.10")
-        repository.delete(original.id)
-        session.commit()
-        assert repository.get(original.id) is None
+        assert repository.last_weight_for(gym_session.id, exercise.id) == 65
 
 
-def test_health_upsert_preserves_unspecified_fields(
-    session_factory: sessionmaker[Session],
-) -> None:
+def test_undo_on_empty_session_returns_none(session_factory: sessionmaker[Session]) -> None:
     with session_factory() as session:
-        repository = HealthRepository(session)
-        repository.upsert(date(2026, 6, 8), sueno_horas=Decimal("7.50"), animo=7)
+        repository = GymRepository(session)
+        gym_session = repository.open_session(fecha=NOW.date(), etiqueta="pull", now=NOW)
         session.commit()
 
-        health = repository.upsert(date(2026, 6, 8), agua_l=Decimal("2.00"))
-        session.commit()
-
-        assert health.sueno_horas == Decimal("7.50")
-        assert health.animo == 7
-        assert health.agua_l == Decimal("2.00")
-        repository.delete(date(2026, 6, 8))
-        session.commit()
-        assert repository.get(date(2026, 6, 8)) is None
+        assert repository.undo_last_set(gym_session.id) is None
 
 
-def test_gym_creates_exercise_once_and_cascades_sets(
+def test_stale_sessions_only_include_inactive_open_ones(
     session_factory: sessionmaker[Session],
 ) -> None:
     with session_factory() as session:
         repository = GymRepository(session)
-        first = repository.create_session(
-            fecha=date(2026, 6, 8),
-            tipo="push",
-            exercises=[
-                {
-                    "nombre": "press_banca",
-                    "sets": [
-                        {"peso_kg": Decimal("80.00"), "reps": 8},
-                        {"peso_kg": Decimal("80.00"), "reps": 6},
-                    ],
-                }
-            ],
-        )
-        second = repository.create_session(
-            fecha=date(2026, 6, 9),
-            tipo="push",
-            exercises=[
-                {
-                    "nombre": "press_banca",
-                    "sets": [{"peso_kg": Decimal("82.50"), "reps": 6}],
-                }
-            ],
+        stale = repository.open_session(
+            fecha=NOW.date(), etiqueta="vieja", now=NOW - timedelta(hours=4)
         )
         session.commit()
+        cutoff = NOW - timedelta(hours=3)
 
-        assert first.sets[0].ejercicio_id == second.sets[0].ejercicio_id
-        assert len(repository.list_exercises()) == 1
-        updated = repository.update_session(first.id, duracion_min=60, notas="buena sesión")
+        assert repository.list_stale_open_sessions(cutoff) == [stale]
+
+        repository.close_session(stale.id, now=NOW)
         session.commit()
-        assert updated.duracion_min == 60
-        assert repository.get_session(first.id) is updated
-        assert repository.list_sessions(2) == [second, first]
-        repository.delete_session(first.id)
-        session.commit()
-        assert session.query(GymSet).filter_by(sesion_id=first.id).count() == 0
+        assert repository.list_stale_open_sessions(cutoff) == []
 
 
-def test_transaction_rolls_back_whole_batch_on_failure(
-    session_factory: sessionmaker[Session],
-) -> None:
-    with pytest.raises(RuntimeError, match="operación inválida"):
-        with session_factory.begin() as session:
-            FinanceRepository(session).create(
-                fecha=date(2026, 6, 8),
-                tipo="gasto",
-                monto=Decimal("1500.00"),
-                categoria="alimentos",
-            )
-            raise RuntimeError("operación inválida")
-
+def test_aliases_accumulate_without_duplicates(session_factory: sessionmaker[Session]) -> None:
     with session_factory() as session:
-        assert session.query(Transaccion).count() == 0
+        repository = GymRepository(session)
+        exercise = repository.get_or_create_exercise("dominadas")
+        session.commit()
+
+        repository.add_alias(exercise.id, "dominasas")
+        repository.add_alias(exercise.id, "dominasas")
+        session.commit()
+
+        assert repository.aliases_for(exercise.id) == ["dominasas"]
+
+
+def test_checkin_partial_updates_persist(session_factory: sessionmaker[Session]) -> None:
+    with session_factory() as session:
+        repository = CheckinRepository(session)
+        repository.get_or_create(NOW.date())
+        session.commit()
+
+        repository.update(NOW.date(), puntaje_dia=8)
+        session.commit()
+        repository.update(NOW.date(), animo=6, estado="completo")
+        session.commit()
+
+        stored = repository.get_or_create(NOW.date())
+        assert (stored.puntaje_dia, stored.animo, stored.estado) == (8, 6, "completo")

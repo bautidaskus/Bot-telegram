@@ -13,3 +13,6 @@ data/backups/*
 !data/backups/.gitkeep
 logs/*
 !logs/.gitkeep
+
+.claude/
+.playwright-mcp/

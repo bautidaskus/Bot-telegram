@@ -27,7 +27,3 @@ CATEGORIAS_INGRESO: Final[frozenset[str]] = frozenset(
 METODOS_PAGO: Final[frozenset[str]] = frozenset(
     {"efectivo", "debito", "credito", "transferencia", "mercadopago"}
 )
-
-TIPOS_SESION: Final[frozenset[str]] = frozenset(
-    {"push", "pull", "piernas", "full_body", "cardio", "libre"}
-)

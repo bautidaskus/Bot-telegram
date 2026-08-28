@@ -12,7 +12,6 @@ CONFIG_ENV_VARS = (
     "ALLOWED_CHAT_ID",
     "GROQ_API_KEY",
     "TIMEZONE",
-    "DEFAULT_CURRENCY",
     "DB_PATH",
 )
 
@@ -38,7 +37,6 @@ def test_settings_load_required_values_and_defaults(
     assert settings.allowed_chat_id == 123456
     assert settings.groq_api_key.get_secret_value() == "test-key"
     assert settings.timezone == "America/Argentina/Buenos_Aires"
-    assert settings.default_currency == "ARS"
     assert settings.db_path == Path("data/tracker.db")
 
 
@@ -78,8 +76,7 @@ def test_env_example_contains_valid_defaults(monkeypatch: pytest.MonkeyPatch) ->
         groq_api_key="test-key",
     )
 
-    assert settings.groq_llm_model == "llama-3.3-70b-versatile"
-    assert settings.groq_whisper_model == "whisper-large-v3"
+    assert settings.groq_llm_model == "openai/gpt-oss-120b"
     assert settings.db_path == Path("data/tracker.db")
     assert settings.backup_retention_days == 30
     assert settings.backup_daily_hour == 3

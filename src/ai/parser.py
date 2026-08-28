@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -19,8 +20,10 @@ from pydantic import ValidationError
 
 from src.config import Settings
 from src.domain.schemas import ParserResponse
+from src.gym.matcher import normalize
 
 TRANSIENT_ERRORS = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
+CANONICAL_NAME = re.compile(r"[a-z0-9]+(?:_[a-z0-9]+)*")
 
 
 class CompletionsProtocol(Protocol):
@@ -127,6 +130,58 @@ class LLMParser:
         ) from last_error
 
 
+class LLMCanonicalizer:
+    """Da de alta ejercicios nuevos a partir de texto libre."""
+
+    def __init__(
+        self,
+        *,
+        client: ClientProtocol,
+        model: str,
+        prompt_path: Path,
+        catalog: list[str] | None = None,
+    ) -> None:
+        self.client = client
+        self.model = model
+        self.prompt = prompt_path.read_text(encoding="utf-8").format(
+            exercise_catalog=", ".join(catalog or []) or "(vacío)"
+        )
+
+    def canonicalize(self, raw: str) -> tuple[str, str | None]:
+        """Devuelve el nombre canónico y el grupo muscular, con fallback local."""
+
+        try:
+            completion = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": self.prompt},
+                    {"role": "user", "content": raw},
+                ],
+                response_format={"type": "json_object"},
+                temperature=0,
+            )
+            payload = json.loads(completion.choices[0].message.content or "")
+            name = str(payload["nombre"])
+            if not CANONICAL_NAME.fullmatch(name):
+                raise ValueError("nombre no canónico")
+            grupo = payload.get("grupo_muscular")
+            return name, str(grupo) if grupo else None
+        except (
+            *TRANSIENT_ERRORS,
+            json.JSONDecodeError,
+            KeyError,
+            TypeError,
+            ValueError,
+        ):
+            return _slugify(raw), None
+
+
+def _slugify(raw: str) -> str:
+    """Fallback local cuando el LLM no está disponible o responde mal."""
+
+    return re.sub(r"[^a-z0-9]+", "_", normalize(raw)).strip("_") or "ejercicio"
+
+
 def create_groq_parser(
     settings: Settings, prompt_path: Path = Path("prompts/parser.txt")
 ) -> LLMParser:
@@ -137,3 +192,19 @@ def create_groq_parser(
         base_url=settings.groq_base_url,
     )
     return LLMParser(client=client, model=settings.groq_llm_model, prompt_path=prompt_path)
+
+
+def create_groq_canonicalizer(
+    settings: Settings,
+    catalog: list[str] | None = None,
+    prompt_path: Path = Path("prompts/canonicalizer.txt"),
+) -> LLMCanonicalizer:
+    """Construye el canonizador con el cliente compatible de Groq."""
+
+    client = OpenAI(
+        api_key=settings.groq_api_key.get_secret_value(),
+        base_url=settings.groq_base_url,
+    )
+    return LLMCanonicalizer(
+        client=client, model=settings.groq_llm_model, prompt_path=prompt_path, catalog=catalog
+    )

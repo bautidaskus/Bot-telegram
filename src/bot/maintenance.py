@@ -10,14 +10,11 @@ from sqlalchemy.orm import Session, sessionmaker
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from src.bot.auth import is_authorized
-from src.db.models import GymSesion, Peso, Salud, Transaccion
-from src.domain.catalogo import CATEGORIAS_GASTO, CATEGORIAS_INGRESO, METODOS_PAGO
+from src.db.models import GymSesion, GymSet
 
 EDITABLE_FIELDS = {
-    "transaccion": ("fecha", "tipo", "monto", "moneda", "categoria", "descripcion", "metodo_pago"),
-    "peso": ("fecha", "kg", "nota"),
-    "salud": ("sueno_horas", "sueno_calidad", "animo", "energia", "agua_l", "nota"),
-    "sesion": ("fecha", "tipo", "duracion_min", "notas"),
+    "sesion": ("fecha", "etiqueta", "duracion_min", "notas"),
+    "set": ("peso_kg", "reps", "rpe", "nota"),
 }
 
 
@@ -127,10 +124,9 @@ class BotMaintenance:
             return True
         record_type, raw_id, field = target
         try:
-            value = _parse_value(record_type, field, update.effective_message.text)
+            value = _parse_value(field, update.effective_message.text)
             with self.session_factory() as session:
                 record = self._get_record(session, record_type, raw_id)
-                _validate_record_value(record, field, value)
                 setattr(record, field, value)
                 session.commit()
             context.user_data.pop("edit_target", None)
@@ -143,21 +139,13 @@ class BotMaintenance:
 
     def _parse_target(self, args: list[str]) -> tuple[str, str]:
         if len(args) != 2 or args[0] not in EDITABLE_FIELDS:
-            raise MaintenanceError("Uso: /editar|borrar <transaccion|peso|salud|sesion> <id>")
+            raise MaintenanceError("Uso: /editar|borrar <sesion|set> <id>")
         return args[0], args[1]
 
     def _get_record(self, session: Session, record_type: str, raw_id: str) -> Any:
+        model = GymSesion if record_type == "sesion" else GymSet
         try:
-            if record_type == "transaccion":
-                record = session.get(Transaccion, int(raw_id))
-            elif record_type == "peso":
-                record = session.get(Peso, int(raw_id))
-            elif record_type == "salud":
-                record = session.get(Salud, date.fromisoformat(raw_id))
-            elif record_type == "sesion":
-                record = session.get(GymSesion, int(raw_id))
-            else:
-                raise MaintenanceError("Tipo inválido")
+            record = session.get(model, int(raw_id))
         except ValueError as error:
             raise MaintenanceError("ID inválido") from error
         if record is None:
@@ -179,43 +167,23 @@ def _bounded_callback(data: str) -> str:
     return data
 
 
-def _parse_value(record_type: str, field: str, raw: str) -> Any:
+def _parse_value(field: str, raw: str) -> Any:
     value = raw.strip()
     if field == "fecha":
         return date.fromisoformat(value)
-    if field in {"monto", "kg", "sueno_horas", "agua_l"}:
+    if field in {"peso_kg", "rpe"}:
         try:
             decimal = Decimal(value.replace(",", "."))
         except InvalidOperation as error:
             raise MaintenanceError("se esperaba un número") from error
         if decimal <= 0:
             raise MaintenanceError("el número debe ser positivo")
+        if field == "rpe" and not Decimal("1") <= decimal <= Decimal("10"):
+            raise MaintenanceError("rpe fuera de rango 1-10")
         return decimal
-    if field in {"sueno_calidad", "animo", "energia"}:
-        number = int(value)
-        if not 1 <= number <= 10:
-            raise MaintenanceError("se esperaba un valor entre 1 y 10")
-        return number
-    if field == "duracion_min":
+    if field in {"reps", "duracion_min"}:
         number = int(value)
         if number <= 0:
-            raise MaintenanceError("la duración debe ser positiva")
+            raise MaintenanceError("se esperaba un entero positivo")
         return number
-    if record_type == "transaccion" and field == "tipo" and value not in {"gasto", "ingreso"}:
-        raise MaintenanceError("tipo debe ser gasto o ingreso")
     return None if value == "-" else value
-
-
-def _validate_record_value(record: Any, field: str, value: Any) -> None:
-    if isinstance(record, Transaccion) and field == "categoria":
-        categories = CATEGORIAS_GASTO if record.tipo == "gasto" else CATEGORIAS_INGRESO
-        if value not in categories:
-            raise MaintenanceError("categoría no reconocida")
-    if isinstance(record, Transaccion) and field == "metodo_pago":
-        if value is not None and value not in METODOS_PAGO:
-            raise MaintenanceError("método de pago no reconocido")
-    if isinstance(record, Peso) and field == "kg" and not Decimal("30") <= value <= Decimal("300"):
-        raise MaintenanceError("peso fuera de rango 30-300 kg")
-    if isinstance(record, Salud) and field == "sueno_horas":
-        if not Decimal("1") <= value <= Decimal("16"):
-            raise MaintenanceError("sueño fuera de rango 1-16 h")

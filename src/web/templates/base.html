@@ -4,8 +4,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%2216%22 fill=%22%23145c44%22/><text x=%2216%22 y=%2221%22 text-anchor=%22middle%22 font-size=%2211%22 fill=%22white%22>PT</text></svg>">
-    <title>{% block title %}Tracker{% endblock %} · Personal Tracker</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%2216%22 fill=%22%23145c44%22/><text x=%2216%22 y=%2221%22 text-anchor=%22middle%22 font-size=%2211%22 fill=%22white%22>GT</text></svg>">
+    <title>{% block title %}Tracker{% endblock %} · Gym Tracker</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
     {% block head %}{% endblock %}
   </head>
@@ -13,14 +13,13 @@
     <div class="page-shell">
       <header class="site-header">
         <a class="brand" href="{{ url_for('index') }}">
-          <span class="brand-mark">PT</span>
-          <span>Personal Tracker</span>
+          <span class="brand-mark">GT</span>
+          <span>Gym Tracker</span>
         </a>
         <nav aria-label="Navegación principal">
           <a {% if active == 'index' %}aria-current="page"{% endif %} href="{{ url_for('index') }}">Resumen</a>
-          <a {% if active == 'finances' %}aria-current="page"{% endif %} href="{{ url_for('finances') }}">Finanzas</a>
           <a {% if active == 'gym' %}aria-current="page"{% endif %} href="{{ url_for('gym') }}">Gimnasio</a>
-          <a {% if active == 'health' %}aria-current="page"{% endif %} href="{{ url_for('health') }}">Salud</a>
+          <a {% if active == 'checkin' %}aria-current="page"{% endif %} href="{{ url_for('checkin') }}">Check-in</a>
         </nav>
       </header>
       <main>

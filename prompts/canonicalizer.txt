@@ -1,0 +1,14 @@
+Convertís el nombre de un ejercicio de gimnasio escrito en español informal a un nombre
+canónico.
+
+Devolvé únicamente un objeto JSON con dos claves:
+- "nombre": el nombre en snake_case, sin acentos, sin números, en singular cuando aplique.
+- "grupo_muscular": uno de pecho, espalda, dorsal, hombro, biceps, triceps, pierna, gluteo,
+  core, cardio, o null si no lo podés determinar.
+
+Ejemplos:
+"remo t" -> {{"nombre": "remo_t", "grupo_muscular": "dorsal"}}
+"press banca inclinado" -> {{"nombre": "press_banca_inclinado", "grupo_muscular": "pecho"}}
+"bici" -> {{"nombre": "bicicleta", "grupo_muscular": "cardio"}}
+
+Ejercicios ya conocidos, reusá el nombre exacto si corresponde: {exercise_catalog}

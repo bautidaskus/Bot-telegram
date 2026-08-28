@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.bot.maintenance import BotMaintenance
-from src.db.models import Base, Salud, Transaccion
+from src.db.models import Base, Ejercicio, GymSesion, GymSet
 from src.db.session import create_sqlite_engine
 
 
@@ -62,76 +62,74 @@ def session_factory(tmp_path: Path) -> sessionmaker[Session]:
     Base.metadata.create_all(engine)
     factory = sessionmaker(engine, expire_on_commit=False)
     with factory() as session:
-        session.add(
-            Transaccion(
-                id=1,
-                fecha=date(2026, 6, 9),
-                tipo="gasto",
-                monto=Decimal("1500.00"),
-                moneda="ARS",
-                categoria="alimentos",
-            )
+        exercise = Ejercicio(id=1, nombre_canonico="press_banca")
+        gym_session = GymSesion(
+            id=1,
+            fecha=date(2026, 6, 9),
+            etiqueta="push",
+            estado="cerrada",
+            ultima_actividad=datetime(2026, 6, 9, 19, 0),
         )
-        session.add(Salud(fecha=date(2026, 6, 9), animo=8))
+        session.add_all([exercise, gym_session])
+        session.flush()
+        session.add(
+            GymSet(id=1, sesion_id=1, ejercicio_id=1, serie_num=1, peso_kg=Decimal("80.00"), reps=8)
+        )
         session.commit()
     return factory
 
 
 def build_maintenance(session_factory: sessionmaker[Session]) -> BotMaintenance:
-    return BotMaintenance(
-        allowed_chat_id=123,
-        session_factory=session_factory,
-    )
+    return BotMaintenance(allowed_chat_id=123, session_factory=session_factory)
 
 
 @pytest.mark.asyncio
-async def test_edit_command_field_callback_and_next_text_update_transaction(
+async def test_edit_command_field_callback_and_next_text_update_set(
     session_factory: sessionmaker[Session],
 ) -> None:
     maintenance = build_maintenance(session_factory)
-    context = SimpleNamespace(args=["transaccion", "1"], user_data={})
+    context = SimpleNamespace(args=["set", "1"], user_data={})
     command_update = update_with_message()
 
     await maintenance.edit(command_update, context)
 
     prompt, keyboard = command_update.message.replies[0]
     assert "Elegí el campo" in prompt
-    amount_button = next(
-        button for row in keyboard.inline_keyboard for button in row if button.text == "monto"
+    weight_button = next(
+        button for row in keyboard.inline_keyboard for button in row if button.text == "peso_kg"
     )
-    callback_update = update_with_callback(amount_button.callback_data)
+    callback_update = update_with_callback(weight_button.callback_data)
     await maintenance.handle_callback(callback_update, context)
     assert "nuevo valor" in callback_update.callback_query.edits[0][0]
 
-    value_update = update_with_message("1800,50")
+    value_update = update_with_message("82,5")
     handled = await maintenance.handle_edit_value(value_update, context)
 
     assert handled is True
     assert "Actualizado" in value_update.message.replies[0][0]
     assert context.user_data == {}
     with session_factory() as session:
-        assert session.get(Transaccion, 1).monto == Decimal("1800.50")
+        assert session.get(GymSet, 1).peso_kg == Decimal("82.50")
 
 
 @pytest.mark.asyncio
-async def test_delete_requires_confirmation_and_supports_health_date_id(
+async def test_delete_session_requires_confirmation(
     session_factory: sessionmaker[Session],
 ) -> None:
     maintenance = build_maintenance(session_factory)
-    context = SimpleNamespace(args=["salud", "2026-06-09"], user_data={})
+    context = SimpleNamespace(args=["sesion", "1"], user_data={})
     command_update = update_with_message()
 
     await maintenance.delete(command_update, context)
 
     prompt, keyboard = command_update.message.replies[0]
     assert "Confirmá" in prompt
-    callback_data = keyboard.inline_keyboard[0][0].callback_data
-    callback_update = update_with_callback(callback_data)
+    callback_update = update_with_callback(keyboard.inline_keyboard[0][0].callback_data)
     await maintenance.handle_callback(callback_update, context)
 
     assert callback_update.callback_query.edits[0][0] == "Eliminado"
     with session_factory() as session:
-        assert session.get(Salud, date(2026, 6, 9)) is None
+        assert session.get(GymSesion, 1) is None
 
 
 @pytest.mark.asyncio
@@ -151,8 +149,8 @@ async def test_invalid_edit_value_does_not_mutate_or_close_dialog(
     session_factory: sessionmaker[Session],
 ) -> None:
     maintenance = build_maintenance(session_factory)
-    context = SimpleNamespace(args=[], user_data={"edit_target": ("transaccion", "1", "categoria")})
-    update = update_with_message("categoria_inexistente")
+    context = SimpleNamespace(args=[], user_data={"edit_target": ("set", "1", "reps")})
+    update = update_with_message("cero")
 
     handled = await maintenance.handle_edit_value(update, context)
 
@@ -160,7 +158,18 @@ async def test_invalid_edit_value_does_not_mutate_or_close_dialog(
     assert "Valor inválido" in update.message.replies[0][0]
     assert "edit_target" in context.user_data
     with session_factory() as session:
-        assert session.get(Transaccion, 1).categoria == "alimentos"
+        assert session.get(GymSet, 1).reps == 8
+
+
+@pytest.mark.asyncio
+async def test_unknown_record_type_returns_usage(session_factory: sessionmaker[Session]) -> None:
+    update = update_with_message()
+
+    await build_maintenance(session_factory).edit(
+        update, SimpleNamespace(args=["transaccion", "1"], user_data={})
+    )
+
+    assert "Uso:" in update.message.replies[0][0]
 
 
 @pytest.mark.asyncio
@@ -171,7 +180,7 @@ async def test_unauthorized_maintenance_is_ignored(
 
     await build_maintenance(session_factory).edit(
         update,
-        SimpleNamespace(args=["transaccion", "1"], user_data={}),
+        SimpleNamespace(args=["sesion", "1"], user_data={}),
     )
 
     assert update.message.replies == []

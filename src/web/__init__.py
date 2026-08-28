@@ -24,42 +24,22 @@ def create_app(
         current_day = today()
         month_start, next_month = month_bounds(current_day)
         with session_factory() as session:
-            queries = DashboardQueries(session)
+            queries = DashboardQueries(session, today)
             return render_template(
                 "index.html",
                 active="index",
                 month=current_day.strftime("%Y-%m"),
-                finances=queries.month_summary(current_day),
-                latest_weight=queries.latest_weight(),
-                health=queries.health_averages(current_day),
+                latest_checkin=queries.latest_checkin(),
+                comparison=queries.checkin_vs_gym(),
                 gym=queries.gym_summary(month_start, next_month - timedelta(days=1), limit=3),
                 activity=queries.recent_activity(),
             )
-
-    @app.get("/finanzas")
-    def finances() -> str:
-        selected_month = parse_month(request.args.get("month"), today())
-        requested_currency = request.args.get("currency", "").upper()
-        with session_factory() as session:
-            queries = DashboardQueries(session)
-            available = [item["currency"] for item in queries.month_summary(selected_month)]
-            selected_currency = select_currency(requested_currency, available)
-            data = queries.finance_month(selected_month, selected_currency)
-        currencies = data["available_currencies"] or [selected_currency]
-        return render_template(
-            "finances.html",
-            active="finances",
-            month=selected_month.strftime("%Y-%m"),
-            currency=selected_currency,
-            currencies=currencies,
-            data=data,
-        )
 
     @app.get("/gym")
     def gym() -> str:
         requested_exercise = request.args.get("exercise", "")
         with session_factory() as session:
-            queries = DashboardQueries(session)
+            queries = DashboardQueries(session, today)
             exercises = queries.exercises()
             selected_exercise = (
                 requested_exercise
@@ -81,16 +61,19 @@ def create_app(
             sessions=sessions,
         )
 
-    @app.get("/salud")
-    def health() -> str:
+    @app.get("/checkin")
+    def checkin() -> str:
         days = parse_days(request.args.get("days"))
-        current_day = today()
-        start = current_day - timedelta(days=days - 1)
         with session_factory() as session:
-            history = DashboardQueries(session).health_history(start, current_day)
-        return render_template(
-            "health.html", active="health", days=days, periods=(30, 90, 365), history=history
-        )
+            queries = DashboardQueries(session, today)
+            return render_template(
+                "checkin.html",
+                active="checkin",
+                days=days,
+                periods=(30, 90, 365),
+                history=queries.checkin_history(days),
+                comparison=queries.checkin_vs_gym(days),
+            )
 
     @app.get("/healthz")
     def healthz():  # type: ignore[no-untyped-def]
@@ -105,23 +88,6 @@ def create_app(
         return render_template("errors/500.html"), 500
 
     return app
-
-
-def parse_month(raw: str | None, fallback: date) -> date:
-    if raw:
-        try:
-            return date.fromisoformat(f"{raw}-01").replace(day=1)
-        except ValueError:
-            pass
-    return fallback.replace(day=1)
-
-
-def select_currency(requested: str, available: list[str]) -> str:
-    if requested in available:
-        return requested
-    if "ARS" in available:
-        return "ARS"
-    return available[0] if available else "ARS"
 
 
 def format_number(value: float | int | None) -> str:
